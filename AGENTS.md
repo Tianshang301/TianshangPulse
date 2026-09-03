@@ -10,7 +10,7 @@
 
 TianshangPulse 是一款基于 **ESP32-P4** (400MHz 双核 RISC-V) 的端侧 AI 智能手表固件，与 [TianshangHealth](https://github.com/Tianshang301/TianshangHealth) Android APP 构成完全离线的健康监测生态。
 
-- **核心能力**：1.5M 参数 INT8 LSTM 实时推理，延迟 <10ms，零云端依赖
+- **核心能力**：750K 参数 INT8 LSTM 实时推理，延迟 <10ms，零云端依赖
 - **技术栈**：ESP-IDF (C/C++) + FreeRTOS + TensorFlow Lite Micro + LVGL
 - **硬件**：ESP32-P4 (16MB PSRAM) + MAX30102 (PPG) + MPU6886 (加速度)
 - **通信**：BLE GATT Server，与 TianshangHealth APP 双向同步

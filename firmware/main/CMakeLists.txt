@@ -1,0 +1,30 @@
+idf_component_register(
+    SRCS
+        "main.c"
+        "sensors/sensor.c"
+        "sensors/max30102.c"
+        "sensors/mpu6886.c"
+        "ble/gatt_server.c"
+        "ble/offline_cache.c"
+        "ui/ui_manager.c"
+        "power/power_manager.c"
+        "tflite/inference_engine.cc"
+    INCLUDE_DIRS
+        "."
+        "sensors"
+        "ble"
+        "ui"
+        "power"
+        "tflite"
+    REQUIRES
+        driver
+        esp_timer
+        freertos
+        nvs_flash
+        bt
+        log
+)
+
+if(CONFIG_LVGL)
+    target_link_libraries(${COMPONENT_LIB} PRIVATE lvgl)
+endif()

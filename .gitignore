@@ -19,3 +19,19 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Model artifacts (keep source only, ignore binaries)
+model/*.onnx
+model/*.pt
+model/*.tflite
+model/*.h5
+model/*.cc
+
+# Calibration data
+data/*.npz
+data/*.csv
+
+# ML virtualenv
+.venv/
+__pycache__/
+*.pyc

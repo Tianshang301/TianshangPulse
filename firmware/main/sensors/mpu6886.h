@@ -1,0 +1,10 @@
+#pragma once
+
+#include "esp_err.h"
+#include "sensors/sensor.h"
+
+#define MPU6886_I2C_ADDR     0x68
+
+esp_err_t mpu6886_init(void);
+esp_err_t mpu6886_read_imu(sensor_imu_data_t *out);
+esp_err_t mpu6886_deinit(void);

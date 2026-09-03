@@ -1,0 +1,21 @@
+# ESP-IDF build
+/build
+/sdkconfig
+/sdkconfig.old
+/sdkconfig.defaults.*
+*.bin
+*.elf
+*.map
+
+# Clangd / IDE
+.idea/
+.vscode/
+.clangd
+compile_commands.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

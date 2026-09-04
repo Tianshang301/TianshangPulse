@@ -1,5 +1,7 @@
 # ESP-IDF build
 /build
+firmware/build/
+firmware/sdkconfig
 /sdkconfig
 /sdkconfig.old
 /sdkconfig.defaults.*

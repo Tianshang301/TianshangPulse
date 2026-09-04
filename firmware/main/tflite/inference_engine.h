@@ -3,6 +3,10 @@
 #include <stdint.h>
 #include "esp_err.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct {
     uint16_t heart_rate_bpm;
     uint8_t  blood_oxygen_pct;
@@ -14,3 +18,7 @@ esp_err_t inference_engine_init(void);
 esp_err_t inference_engine_run(void);
 esp_err_t inference_engine_get_result(inference_result_t *out);
 esp_err_t inference_engine_deinit(void);
+
+#ifdef __cplusplus
+}
+#endif

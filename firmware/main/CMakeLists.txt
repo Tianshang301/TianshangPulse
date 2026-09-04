@@ -18,6 +18,7 @@ idf_component_register(
         "tflite"
     PRIV_REQUIRES
         driver
+        esp_psram
         esp_timer
         freertos
         nvs_flash

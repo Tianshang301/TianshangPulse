@@ -3,6 +3,7 @@
 #include "esp_log.h"
 #include "nimble/nimble_port.h"
 #include "host/ble_hs.h"
+#include "host/ble_hs_mbuf.h"
 #include "host/util/util.h"
 #include "services/gap/ble_svc_gap.h"
 #include "services/gatt/ble_svc_gatt.h"
@@ -15,8 +16,10 @@ static const char *kDeviceName = "TianshangPulse";
 static uint16_t s_hr_val_handle;
 static uint16_t s_spo2_val_handle;
 static uint16_t s_anomaly_val_handle;
+static uint16_t s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
 
 static int on_gap_event(struct ble_gap_event *event, void *arg);
+static void start_advertising(void);
 
 static const struct ble_gatt_svc_def gatt_db[] = {
     {
@@ -80,6 +83,23 @@ static void on_sync(void)
     }
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "gatt config failed: %s", esp_err_to_name(err));
+        return;
+    }
+    start_advertising();
+}
+
+static void start_advertising(void)
+{
+    struct ble_gap_adv_params adv_params = {
+        .conn_mode = BLE_GAP_CONN_MODE_UND,
+        .disc_mode = BLE_GAP_DISC_MODE_GEN,
+        .itvl_min = BLE_GAP_ADV_FAST_INTERVAL1_MIN,
+        .itvl_max = BLE_GAP_ADV_FAST_INTERVAL1_MAX,
+    };
+    int rc = ble_gap_adv_start(BLE_OWN_ADDR_PUBLIC, NULL, BLE_HS_FOREVER,
+                               &adv_params, on_gap_event, NULL);
+    if (rc != 0) {
+        ESP_LOGE(TAG, "adv start failed: %d", rc);
     }
 }
 
@@ -87,15 +107,24 @@ static int on_gap_event(struct ble_gap_event *event, void *arg)
 {
     (void)arg;
     switch (event->type) {
-    case BLE_GAP_EVENT_ADV_COMPLETE: {
-        struct ble_gap_adv_params adv_params = {
-            .conn_mode = BLE_GAP_CONN_MODE_UND,
-            .disc_mode = BLE_GAP_DISC_MODE_GEN,
-        };
-        ble_gap_adv_start(BLE_OWN_ADDR_PUBLIC, NULL, BLE_HS_FOREVER,
-                          &adv_params, on_gap_event, NULL);
+    case BLE_GAP_EVENT_CONNECT:
+        if (event->connect.status == 0) {
+            s_conn_handle = event->connect.conn_handle;
+            ESP_LOGI(TAG, "connected, handle=%u", (unsigned)s_conn_handle);
+        } else {
+            start_advertising();
+        }
         break;
-    }
+    case BLE_GAP_EVENT_DISCONNECT:
+        ESP_LOGI(TAG, "disconnected");
+        s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
+        start_advertising();
+        break;
+    case BLE_GAP_EVENT_ADV_COMPLETE:
+        start_advertising();
+        break;
+    case BLE_GAP_EVENT_NOTIFY_TX:
+        break;
     default:
         break;
     }
@@ -115,20 +144,36 @@ esp_err_t ble_gatt_server_init(void)
 
 esp_err_t ble_notify_heart_rate(uint16_t bpm)
 {
-    return ble_gatts_notify_custom(NULL, s_hr_val_handle,
-                                   (uint8_t *)&bpm, sizeof(bpm));
+    if (s_conn_handle == BLE_HS_CONN_HANDLE_NONE) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    struct os_mbuf *om = ble_hs_mbuf_from_flat(&bpm, sizeof(bpm));
+    if (!om) return ESP_ERR_NO_MEM;
+    int rc = ble_gatts_notify_custom(s_conn_handle, s_hr_val_handle, om);
+    return rc == 0 ? ESP_OK : ESP_ERR_INVALID_RESPONSE;
 }
 
 esp_err_t ble_notify_spo2(uint8_t pct)
 {
-    return ble_gatts_notify_custom(NULL, s_spo2_val_handle, &pct, sizeof(pct));
+    if (s_conn_handle == BLE_HS_CONN_HANDLE_NONE) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    struct os_mbuf *om = ble_hs_mbuf_from_flat(&pct, sizeof(pct));
+    if (!om) return ESP_ERR_NO_MEM;
+    int rc = ble_gatts_notify_custom(s_conn_handle, s_spo2_val_handle, om);
+    return rc == 0 ? ESP_OK : ESP_ERR_INVALID_RESPONSE;
 }
 
 esp_err_t ble_notify_anomaly(const ble_anomaly_event_t *event)
 {
     if (!event) return ESP_ERR_INVALID_ARG;
-    return ble_gatts_notify_custom(NULL, s_anomaly_val_handle,
-                                   (const uint8_t *)event, sizeof(*event));
+    if (s_conn_handle == BLE_HS_CONN_HANDLE_NONE) {
+        return ESP_ERR_INVALID_STATE;
+    }
+    struct os_mbuf *om = ble_hs_mbuf_from_flat(event, sizeof(*event));
+    if (!om) return ESP_ERR_NO_MEM;
+    int rc = ble_gatts_notify_custom(s_conn_handle, s_anomaly_val_handle, om);
+    return rc == 0 ? ESP_OK : ESP_ERR_INVALID_RESPONSE;
 }
 
 esp_err_t ble_deinit(void)

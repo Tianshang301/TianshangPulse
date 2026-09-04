@@ -10,7 +10,7 @@ static esp_pm_lock_handle_t s_light_sleep_lock = NULL;
 
 esp_err_t power_manager_init(void)
 {
-    esp_pm_config_esp32p4_t pm_cfg = {
+    esp_pm_config_t pm_cfg = {
         .max_freq_mhz = 400,
         .min_freq_mhz = 40,
         .light_sleep_enable = true,

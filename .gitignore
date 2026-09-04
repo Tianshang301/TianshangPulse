@@ -7,6 +7,11 @@
 *.elf
 *.map
 
+# ESP Component Manager (fetched on first idf.py build)
+firmware/managed_components/
+firmware/dependencies.lock
+firmware/main/managed_components/
+
 # Clangd / IDE
 .idea/
 .vscode/

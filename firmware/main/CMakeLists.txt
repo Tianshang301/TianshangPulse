@@ -16,15 +16,15 @@ idf_component_register(
         "ui"
         "power"
         "tflite"
-    REQUIRES
+    PRIV_REQUIRES
         driver
         esp_timer
         freertos
         nvs_flash
         bt
         log
+        lvgl
+        espressif__esp-tflite-micro
 )
 
-if(CONFIG_LVGL)
-    target_link_libraries(${COMPONENT_LIB} PRIVATE lvgl)
-endif()
+target_compile_options(${COMPONENT_LIB} PRIVATE -Wall -Wextra -Wno-unused-parameter)

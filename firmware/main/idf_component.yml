@@ -1,0 +1,4 @@
+dependencies:
+  idf: ">=5.4"
+  espressif/esp-tflite-micro: "^1.1.0"
+  lvgl/lvgl: "^9.2.0"

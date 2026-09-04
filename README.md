@@ -1,6 +1,8 @@
 # TianshangPulse
 
 > **Edge AI smartwatch firmware on ESP32-P4.** Forms a fully offline health monitoring ecosystem with [TianshangHealth](https://github.com/Tianshang301/TianshangHealth) (Android APP).
+>
+> **简体中文**: [docs/README.zh-CN.md](docs/README.zh-CN.md)
 
 ## Highlights
 
@@ -80,6 +82,7 @@ Detailed budget: `docs/POWER_BUDGET.md`
 
 ## Documentation
 
+- `docs/README.zh-CN.md` — 简体中文文档 (Simplified Chinese)
 - `docs/PROTOCOL.md` — BLE GATT protocol (Source of Truth)
 - `docs/HARDWARE.md` — hardware design & pin allocation
 - `docs/MODEL_ARCH.md` — model architecture & quantization pipeline

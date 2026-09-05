@@ -16,6 +16,7 @@ idf_component_register(
         "ui"
         "power"
         "tflite"
+        "platform"
     PRIV_REQUIRES
         driver
         esp_psram

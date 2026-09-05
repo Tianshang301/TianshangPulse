@@ -1,0 +1,11 @@
+# ESP32-P4 specific sdkconfig
+# Target set via: idf.py set-target esp32p4
+
+# PSRAM: 16MB external, required for TFLite Micro arena
+CONFIG_SPIRAM=y
+CONFIG_SPIRAM_SPEED_120M=y
+CONFIG_SPIRAM_BOOT_INIT=y
+CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=4096
+
+# Flash: 16MB
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y

@@ -12,8 +12,8 @@ esp_err_t max30102_init(void)
 {
     i2c_master_bus_config_t bus_cfg = {
         .i2c_port = KSensorPortI2c,
-        .sda_io_num = CONFIG_SENSOR_SDA_GPIO,
-        .scl_io_num = CONFIG_SENSOR_SCL_GPIO,
+        .sda_io_num = KSensorSdaGpio,
+        .scl_io_num = KSensorSclGpio,
         .clk_source = I2C_CLK_SRC_DEFAULT,
         .glitch_ignore_cnt = 7,
         .flags.enable_internal_pullup = true,

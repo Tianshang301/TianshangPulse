@@ -9,24 +9,38 @@
 
 ## 2. 电源域估算
 
+### ESP32-P4（RISC-V）
+
 | 模块 | 工作电流 | 说明 |
 |------|----------|------|
-| ESP32-P4 HP 核（400MHz 推理） | ~60mA | 仅推理时全速 |
-| ESP32-P4 LP 核（40MHz） | ~3mA | 看门狗 + 中断唤醒 |
+| HP 核（400MHz 推理） | ~60mA | 仅推理时全速（`KPlatformCpuMaxMhz=400`） |
+| LP 核（40MHz） | ~3mA | 看门狗 + 中断唤醒 |
 | PSRAM | 半休眠 | 空闲时降功耗 |
 | MAX30102（单次采样） | ~0.7mA | One-shot 模式 |
 | MPU6886 | ~0.5mA | 可配置低功耗模式 |
 | 屏幕 | 待定 | 待选型 |
 | BLE 广播/连接 | ~10mA 峰值 | 周期性广播 |
 
+### ESP32-S3（Xtensa，N8R8）
+
+| 模块 | 工作电流 | 说明 |
+|------|----------|------|
+| 双核（240MHz 推理） | ~40mA | `esp_pm_configure` 上限 `KPlatformCpuMaxMhz=240` |
+| 空闲降频 | ~80MHz | `KPlatformCpuMinMhz=80`（S3 无独立 LP 核） |
+| PSRAM | 半休眠 | 空闲时降功耗 |
+| MAX30102 / MPU6886 | 同 P4 | 相同传感器方案 |
+| BLE 广播/连接 | ~10mA 峰值 | 周期性广播 |
+
+> CPU 频率由 `power/power_manager.c` 读取 `KPlatformCpuMaxMhz` / `KPlatformCpuMinMhz`（platform 头文件）参数化配置。
+
 ## 3. 低功耗策略（checklist）
 
-- [ ] LP 核（40MHz）负责看门狗和简单中断唤醒
-- [ ] HP 核（400MHz）仅在推理时全速运行，其余时间降频
+- [ ] P4：LP 核（40MHz）负责看门狗和简单中断唤醒
+- [ ] HP 核（最大频率）仅在推理时全速运行，其余时间降频；S3 由 `esp_pm` 自动调频
 - [ ] PSRAM 在空闲时进入半休眠模式
 - [ ] 传感器使用单次采样模式（One-shot），禁止连续高功耗模式
 - [ ] 推理频率 25Hz，每次 <10ms，占空比 ~25%
 
 ## 4. 详细测量
 
-> 待实测：各模式下的具体电流数据。
+> 待实测：各模式下的具体电流数据（S3 上板后补充）。

@@ -28,13 +28,17 @@ firmware/                     # ESP-IDF 项目
 ├── main/
 │   ├── config.h              # 关键常量（arena / 缓冲 / MTU / 采样率）
 │   ├── main.c                # 入口 + sensor/inference 任务
+│   ├── platform/             # 目标抽象层（ESP32-P4 / ESP32-S3 常量）
 │   ├── tflite/               # 推理引擎（init/run/deinit，PSRAM arena）
 │   ├── sensors/              # 传感器统一接口 + MAX30102 + MPU6886
 │   ├── ble/                  # GATT Server + 离线事件缓存
 │   ├── ui/                   # LVGL 界面
 │   └── power/                # 功耗管理（active / light-sleep / standby）
-├── sdkconfig.defaults        # 目标芯片 / PSRAM / BLE / I2C 默认配置
-└── main/idf_component.yml    # 组件依赖（lvgl, esp-tflite-micro）
+├── sdkconfig.defaults          # 通用配置（FreeRTOS / BLE / I2C 端口）
+├── sdkconfig.defaults.esp32p4  # P4：PSRAM 120M、16MB Flash
+├── sdkconfig.defaults.esp32s3  # S3：OPI PSRAM 80M、8MB Flash、自定义分区表
+├── partitions_8mb.csv          # 自定义 8MB 分区表（esp32s3）
+└── main/idf_component.yml      # 组件依赖（lvgl, esp-tflite-micro）
 ```
 
 其他目录：`docs/`（协议 / 硬件 / 功耗 / 模型 / 内存布局）、`scripts/`（模型转换与验证）、`model/`、`data/`、`hardware/`
@@ -43,8 +47,10 @@ firmware/                     # ESP-IDF 项目
 
 ### 前置条件
 
-- [ESP-IDF v5.4](https://docs.espressif.com/projects/esp-idf/en/latest/esp32p4/get-started/)
-- 芯片：ESP32-P4（需 16MB PSRAM 型号）
+- [ESP-IDF v5.4](https://docs.espressif.com/projects/esp-idf/en/latest/get-started/)
+- 目标芯片（二选一）：
+  - **ESP32-P4**（16MB Flash + 16MB PSRAM）
+  - **ESP32-S3 N8R8**（8MB Flash + 8MB OPI PSRAM）——推荐先从此芯片开始
 
 ### 首次构建
 
@@ -53,17 +59,28 @@ firmware/                     # ESP-IDF 项目
 . $env:IDF_PATH\export.ps1
 
 cd firmware
-idf.py set-target esp32p4
+
+# ESP32-S3（默认开发目标）
+idf.py set-target esp32s3
+
+# 或 ESP32-P4
+# idf.py set-target esp32p4
+
 idf.py build
 ```
 
 首次构建时 ESP Component Manager 会自动拉取 `lvgl` 与 `esp-tflite-micro` 组件。
+
+SDK 会自动加载对应的 `sdkconfig.defaults.<目标芯片>`。目标相关常量统一放在 `firmware/main/platform/`。
 
 ### 烧录与监控
 
 ```bash
 idf.py flash monitor
 ```
+
+> 注意：`esp32s3` 使用自定义 8MB 分区表（`partitions_8mb.csv`）。
+> 切换目标时，如遇到 target 不匹配错误，先 `idf.py fullclean` 并删除 `sdkconfig`。
 
 ## 内存策略
 

@@ -27,8 +27,9 @@ void app_main(void)
     }
     ESP_ERROR_CHECK(err);
 
-    ESP_LOGI(MAIN_TAG, "TianshangPulse boot, %s, PSRAM=%u bytes",
+    ESP_LOGI(MAIN_TAG, "TianshangPulse boot, %s, %s, PSRAM=%u bytes",
              kModelTag,
+             KPlatformName,
              (unsigned)esp_psram_get_size());
 
     ESP_ERROR_CHECK(power_manager_init());
@@ -40,8 +41,8 @@ void app_main(void)
     ESP_ERROR_CHECK(ble_gatt_server_init());
     ESP_ERROR_CHECK(ui_init());
 
-    xTaskCreate(sensor_task, "sensor", 4096, NULL, 6, NULL);
-    xTaskCreate(inference_task, "inference", 8192, NULL, 5, NULL);
+    xTaskCreate(sensor_task, "sensor", KSensorTaskStackBytes, NULL, 6, NULL);
+    xTaskCreate(inference_task, "inference", KInferenceTaskStackBytes, NULL, 5, NULL);
 }
 
 static void sensor_task(void *arg)

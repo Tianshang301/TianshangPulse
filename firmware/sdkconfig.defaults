@@ -1,10 +1,5 @@
-# ESP-IDF v5.4+ / ESP32-P4 target (set via: idf.py set-target esp32p4)
-CONFIG_IDF_TARGET="esp32p4"
-
-# PSRAM: 16MB external, required for TFLite Micro arena
-CONFIG_SPIRAM=y
-CONFIG_SPIRAM_BOOT_INIT=y
-CONFIG_SPIRAM_MALLOC_ALWAYSINTERNAL=4096
+# TianshangPulse — common sdkconfig (applies to all targets)
+# Target-specific settings live in sdkconfig.defaults.<TARGET>
 
 # FreeRTOS
 CONFIG_FREERTOS_HZ=1000
@@ -19,5 +14,3 @@ CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
 
 # I2C bus (shared by MAX30102 + MPU6886)
 CONFIG_SENSOR_I2C_PORT=0
-CONFIG_SENSOR_SDA_GPIO=18
-CONFIG_SENSOR_SCL_GPIO=8

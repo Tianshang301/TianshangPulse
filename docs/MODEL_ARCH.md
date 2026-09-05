@@ -30,7 +30,14 @@ firmware/main/tflite/inference_engine.cc 加载
 
 ## 4. 输入/输出张量
 
-> 待填充：模型更新时在此同步张量维度（AGENTS.md §ML-Agent 约束）。
+| 张量 | 维度 | 类型 | 说明 |
+|------|------|------|------|
+| 输入 | `(1, 100, 1)` | float32 → INT8 | 单通道 PPG，1 秒窗口 @100Hz（`KSensorSampleRateHz=100`） |
+| 输出 | `(1, 3)` | INT8 | [HR, SpO2, AF 概率]，AF∈[0,1] |
+
+- 训练数据来源：MIMIC PERform AF（记录 `15906524`，`data/processed/train.npz`），125Hz 原始 → 0.5–8Hz 带通 → 1 秒窗 → 重采样 100 点
+- 患者级隔离划分（GroupShuffleSplit，28 训 / 7 验）
+- 每输入一次推理需最近 1 秒 PPG 历史（固件维护滑动缓冲，见 `KSensorBufferSize`）
 
 ## 5. 模型版本
 

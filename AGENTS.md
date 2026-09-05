@@ -262,6 +262,39 @@ idf.py monitor  # uxTaskGetStackHighWaterMark()
 
 ---
 
-*最后更新：2026-09-03*  
+## 8. 历史计划归档
+
+> 已执行的计划不再保留于 `PLAN.md`（该文件始终承载"当前进行中"的计划）。
+> 以下为已完结计划的压缩摘要。
+
+### 8.1 ✅ ESP32-S3 兼容层（已执行，commit 4989de6）
+
+**目标**：固件支持 `idf.py set-target esp32s3|esp32p4` 双目标一键切换，并完成 S3 编译验证。
+
+**已确认参数**：S3 N8R8（8MB Flash + 8MB OPI PSRAM）；I2C 引脚复用 P4（SDA=18/SCL=8）；兼容层形态 `firmware/main/platform/`（纯头文件）；仅编译、不烧录（待购板）；S3 优先验证。
+
+**执行要点（九步）**：
+1. 新建 `platform/`：`platform.h`（按 `CONFIG_IDF_TARGET` 分派）+ `platform_esp32p4.h` / `platform_esp32s3.h`。常量：CPU 频率（P4 400/40、S3 240/80）、SRAM/PSRAM/Flash、arena 1MB、任务栈、I2C 引脚
+2. `config.h`：`KTensorArenaSize`/I2C 引脚改用 platform 常量，保留芯片无关项
+3. `power_manager.c`：CPU 频率参数化（`KPlatformCpuMaxMhz/MinMhz`）
+4. `main.c`：日志用 `KPlatformName`，任务栈用常量
+5. sdkconfig 拆分：`sdkconfig.defaults`（通用）+ `.esp32p4`（PSRAM 120M / flash 16MB）+ `.esp32s3`（OPI PSRAM 80M / flash 8MB / 自定义分区表）；已移除 `CONFIG_IDF_TARGET` 行
+6. `CMakeLists.txt`：`INCLUDE_DIRS` 加 `platform`；`esp_psram` 进 PRIV_REQUIRES
+7. S3 验证：安装 Xtensa 工具链 → `set-target esp32s3` → build 通过（bin 0x85bf0 ≈ 548KB，factory 3MB 剩余 83%）
+8. P4 回归：`set-target esp32p4` → build 通过（未破坏）
+9. 文档同步：README 英/中 Build、MEMORY_LAYOUT、POWER_BUDGET、HARDWARE
+
+**审核补充任务**：
+- 10. 分区表：`firmware/partitions_8mb.csv`（nvs/phy_init/factory 3MB/model 1MB/storage ~4MB），仅 S3 使用（PSRAM 8MB 下默认 singleapp 也安全，此项为预留模型区）
+- 11. 任务栈参数化：`KMain/Sensor/InferenceTaskStackBytes`（S3 sensor=3072，推理保持 8192）
+- 12. I2C 引脚可覆盖：`KPlatformI2cSda/Scl`（烧录前核对 S3 DevKitC 原理图）
+
+**风险应对**：Xtensa 工具链 ~200MB 下载；S3 首次全量编译 10-20 分钟；S3 配置项以实际 Kconfig 为准。CSV 分区表不支持行内 `#` 注释（教训：注释须独立成行）。
+
+**后续**：S3 N8R8 开发板到位后烧录验证运行时（含 GPIO8/18 原理图核对）；P4 迁移待 S3 验证通过后按同路径推进。
+
+---
+
+*最后更新：2026-09-05*  
 *维护者：Tianshang301*  
 *协议：MIT*

@@ -39,6 +39,10 @@ model/*.cc
 data/*.npz
 data/*.csv
 
+# Downloaded datasets (MIMIC PERform raw CSV + processed npz, not tracked)
+data/raw/
+data/processed/
+
 # ML virtualenv
 .venv/
 __pycache__/

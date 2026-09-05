@@ -1,194 +1,66 @@
-# PLAN — ESP32-S3 兼容层
+# PLAN — 下载 MIMIC PERform AF 数据集 + 准备训练数据（审核修订版）
 
-> 状态：**待审核**（审核通过后执行）
+> 状态：**待执行**（参数已确认，采纳审核意见）
 
-## 目标
+## 背景
 
-在不破坏 ESP32-P4 支持的前提下，让固件可通过 `idf.py set-target` 在 **S3 N8R8（8MB Flash + 8MB OPI PSRAM）** 与 **P4（16MB Flash + 16MB PSRAM）** 间一键切换，并完成 S3 编译验证（烧录待购板后）。
+本机网络对 `zenodo.org` 的 DNS 被污染（只返回 IPv6 且无路由），需强制 IPv4 直连下载。目标数据集为 MIMIC PERform AF Dataset，用于后续 LSTM AF 检测模型训练。
 
 ## 已确认参数
 
-- S3 硬件：N8R8（8MB Flash + 8MB OPI PSRAM）
-- 传感器 I2C 引脚：复用 P4 引脚（SDA=18 / SCL=8）
-- 兼容层形态：`firmware/main/platform/` 子目录（纯头文件）
-- 验证范围：仅编译，烧录待购板后
-- 优先级：S3 优先，验证通过后再考虑 P4
+| 项 | 值 |
+|---|---|
+| 记录 | `15906524`（MIMIC PERform Datasets v2.0，ODbL-1.0 许可） |
+| 格式 | CSV（`mimic_perform_af_csv.zip` 27MB + `mimic_perform_non_af_csv.zip` 23MB） |
+| 范围 | 仅 AF 数据集（35 人：19 AF + 16 非 AF） |
+| 信号 | PPG + ECG + 呼吸，125Hz，20 分钟/人 |
+| 滤波域 | **125Hz 原始域**：0.5–8Hz 带通 + Z-score + 截断 ±3σ |
+| 窗口长度 | **1 秒**（125 点）→ 降采样到 **100 点**（与固件 100Hz 对齐） |
+| 滑窗步长 | **0.5 秒**（50% 重叠，~4.8 万窗；`--step-sec` 参数化，执行对比 0.2/0.5） |
+| 模型输入 | **单通道 PPG `(100,1)`**（ECG 存 npz 备用，不参与输入） |
+| 数据划分 | **按患者隔离** `GroupShuffleSplit`：训练 28 人 / 验证 7 人（8:2，seed 42） |
 
----
+## 网络方案
 
-## 一、新建 `firmware/main/platform/` 兼容层
+- `curl.exe --resolve zenodo.org:443:<IPv4>` 强制 IPv4 直连（已实测 HTTP 206 可达）
+- IPv4 候选：`137.138.153.219`、`137.138.52.235`、`188.184.98.114`
+- 下载后校验字节数与预期一致（AF=27,206,049 / non-AF=23,217,818），不匹配则中止
 
-```
-platform/
-├── platform.h            # 统一入口：按 CONFIG_IDF_TARGET 分派
-├── platform_esp32p4.h    # P4 专用常量
-└── platform_esp32s3.h    # S3 专用常量
-```
+## 执行步骤
 
-`platform.h` 核心逻辑：
-
-```c
-#pragma once
-#include "sdkconfig.h"
-#if CONFIG_IDF_TARGET_ESP32P4
-    #include "platform_esp32p4.h"
-#elif CONFIG_IDF_TARGET_ESP32S3
-    #include "platform_esp32s3.h"
-#else
-    #error "Unsupported target"
-#endif
-```
-
-### 常量表
-
-| 常量 | P4 | S3 N8R8 |
-|------|----|---------|
-| `KPlatformName` | `"ESP32-P4"` | `"ESP32-S3"` |
-| `KPlatformCpuMaxMhz` | 400 | 240 |
-| `KPlatformCpuMinMhz` | 40 | 80 |
-| `KPlatformSramBytes` | 768KB | 512KB |
-| `KPlatformPsramBytes` | 16MB | 8MB |
-| `KPlatformArenaSize` | 1MB | 1MB |
-| `KPlatformFlashSize` | 16MB | 8MB |
-
----
-
-## 二、`config.h` 重构
-
-- 移除 `KTensorArenaSize`、`KSensorBufferSize`（移入 platform 头文件）
-- 顶部 `#include "platform/platform.h"`
-- 保留芯片无关常量（MTU、缓存条数、采样率、I2C 引脚/频率）
-
-## 三、`power/power_manager.c` 参数化
-
-- `max_freq_mhz = KPlatformCpuMaxMhz`、`min_freq_mhz = KPlatformCpuMinMhz`
-- 头文件 `power_manager.h` 无需改动
-
-## 四、`main.c`
-
-- 启动日志改用 `KPlatformName`（`esp_psram_get_size()` 运行时真实值保留）
-
-## 五、sdkconfig 拆分（利用 ESP-IDF 原生 `<TARGET>` 合并机制）
-
-- **`sdkconfig.defaults`**（通用）：移除 `CONFIG_IDF_TARGET` 行（由 set-target 管理）；保留 FreeRTOS / NimBLE / I2C 引脚（两目标一致）
-- **`sdkconfig.defaults.esp32p4`**（新建，从现状迁入 P4 专属项）：PSRAM 120M、flash 16MB
-- **`sdkconfig.defaults.esp32s3`**（新建）：OPI PSRAM 80M（`CONFIG_SPIRAM_MODE_OCT=y`）、flash 8MB（`CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y`）
-
-## 六、CMakeLists.txt
-
-- `INCLUDE_DIRS` 增加 `"platform"`（纯头文件，无需 SRCS）
-
-## 七、S3 编译验证
-
-1. 安装 Xtensa 工具链：`install.ps1 esp32s3`（约 200MB 下载，本机现仅装了 RISC-V）
-2. `idf.py set-target esp32s3 && idf.py build`（首次全量编译约 10-20 分钟）
-3. 修复编译错误直至生成 `TianshangPulse.bin`
-4. 记录二进制大小，回填 README Benchmark
-
-## 八、文档同步（AGENTS.md §5 义务）
-
-- `README.md` / `docs/README.zh-CN.md`：Build 章节补双目标切换命令
-- `docs/MEMORY_LAYOUT.md`：新增 S3 内存行（512KB SRAM / 8MB PSRAM / 1MB arena）
-- `docs/POWER_BUDGET.md`：S3 240MHz 上限说明
-- `docs/HARDWARE.md`：新增 S3 N8R8 变体章节
-
-## 九、提交推送
-
-按既定模式 commit + push 到 `origin/main`。
-
----
+1. **建目录**：`data/raw/mimic_perform_af/` + `data/processed/`
+2. **下载**两个 CSV zip（`curl --resolve` 强制 IPv4），校验字节数
+3. **解压**：确认 AF=19 / non-AF=16 受试者，核对 `_data.csv` 列（`Time,PPG,ECG`+可选`resp`）
+4. **安装依赖**：`pip install scikit-learn`（`GroupShuffleSplit`）
+5. **新增 `scripts/prepare_af_dataset.py`**：
+   - 读取每受试者 `_data.csv` 的 PPG（及 ECG 备用）列
+   - 预处理：0.5–8Hz bandpass → Z-score（按窗口）→ clip ±3σ
+   - 滑窗：1 秒窗 / 0.5 秒步（参数化），125 点 → Resample 到 100 点
+   - **GroupShuffleSplit 按 patient_id 划分**（28 训 / 7 验，seed 42）
+   - 输出：
+     - `data/processed/train.npz`：`windows (N,100,1)`、`labels (N,)`、`patient_id (N,)`
+     - `data/processed/val.npz`：同格式
+     - `data/processed/mimic_perform_af_meta.json`：受试者映射、窗数、划分明细
+   - 内置断言：无 NaN、标签全 0/1、训练/验证患者无重叠
+6. **运行脚本**，核验规模（预计 train ~3.8 万 / val ~1 万窗）
+7. 数据文件由 `.gitignore` 排除（`data/*.csv`/`data/*.npz`），仅脚本入库
 
 ## 范围边界
 
-- 本轮只做兼容层 + 编译验证
-- 不做烧录（待购板）
-- 不改传感器 / BLE / TFLite 业务代码（其底层 API 在 P4/S3 一致，无需抽象）
+- 本轮只下载 + 解析为训练用 npz，不训练模型、不烧录
+- 数据集文件不进入 git（由 .gitignore 排除）
+
+## 产出
+
+- `data/raw/mimic_perform_af/`（原始 zip + 解压 CSV，不入库）
+- `data/processed/train.npz` + `val.npz` + `meta.json`（不入库）
+- `scripts/prepare_af_dataset.py`（入库）
+- `docs/MODEL_ARCH.md` §4 张量维度同步（`(100,1)` 输入 + AF 输出扩展）
+- 数据报告（受试者/窗数/时长分布）摘要
 
 ## 风险与备注
 
-- Xtensa 工具链下载约 200MB，取决于网络速度
-- S3 首次全量编译耗时长（10-20 分钟）
-- 若 `CONFIG_SPIRAM_MODE_OCT` 等 S3 配置项在 v5.4 中有差异，以实际 Kconfig 为准调整
-
----
-
-# 修订版（审核反馈整合）
-
-> 状态：**已审核**（补充遗漏项后执行）
-
-## 审核意见核实结果（基于实测）
-
-| # | 审核建议 | 实测结论 | 处置 |
-|---|----------|----------|------|
-| 1 | 分区表适配 | **当前项目用默认 `partitions_singleapp.csv`（factory=1MB）**，非自定义。现 bin 仅 440KB，8MB Flash 下**不超限、无烧录风险** | 降级为**增强项**：新建 8MB 分区表预留模型区（见任务 10） |
-| 2 | SRAM 审计 | 全工程**无大型静态数组**（仅 `gatt_db` 表），sensor=4096 / inference=8192 栈。S3 512KB SRAM 充裕 | 补充任务栈常量进 platform 头文件，供按目标微调（见任务 11） |
-| 3 | I2C 引脚 | S3 Strapping 为 **GPIO0/3/45/46**，GPIO8/18 非 Strapping，无启动冲突 | 保留 18/8，但允许 platform 头文件覆盖；列入烧录前原理图核对项（见任务 12） |
-| 4 | PSRAM S3 配置 | 已确认需要 `CONFIG_SPIRAM_MODE_OCT=y` 等 | 编译时以实际 Kconfig 校准（计划已含） |
-| 5 | TFLite LSTM 算子 | `esp-tflite-micro` 官方支持 Xtensa+ESP-NN；**当前 `run()` 为空、未接模型**，算子风险实际为 0 | 算子预检延后到模型落地阶段，本轮不阻塞 |
-
-## 补充任务
-
-### 10. 分区表适配（增强）
-
-- 新建 `firmware/partitions_8mb.csv`（8MB Flash 布局）：
-
-```
-# Name,     Type,  SubType, Offset,   Size,    Flags
-nvs,        data,  nvs,     0x9000,   0x6000,
-phy_init,   data,  phy,     0xf000,   0x1000,
-factory,    app,   factory, 0x10000,  0x300000,  # 3MB 固件区
-model,      data,  spiffs,  0x310000, 0x100000,  # 1MB 模型存储
-storage,    data,  spiffs,  0x410000, 0x3F0000,  # 剩余 ~4MB 用户数据/缓存
-```
-
-- `sdkconfig.defaults.esp32s3` 指定：
-
-```
-CONFIG_PARTITION_TABLE_CUSTOM=y
-CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_8mb.csv"
-```
-
-- P4 维持默认 singleapp（16MB 下 1MB factory 够用，本轮不动）
-
-### 11. 任务栈参数化（SRAM 安全）
-
-- platform 头文件增加：
-
-```c
-// P4 / S3 可差异化
-#define KMainTaskStackBytes       (4096)   // 保持
-#define KSensorTaskStackBytes     (3072)   // S3 可降，P4=4096
-#define KInferenceTaskStackBytes  (8192)   // 推理栈保持较大
-```
-
-- S3 推理任务栈保持 8192（TFLite 调用栈需求）
-- 离线事件缓存已在 PSRAM（`heap_caps_malloc(MALLOC_CAP_SPIRAM)`），无需迁移
-- `main.c` 中 `xTaskCreate` 改引用上述常量
-
-### 12. I2C 引脚可覆盖
-
-- `platform_esp32s3.h` 增加：
-
-```c
-#define KPlatformI2cSda  (18)   // 默认复用 P4
-#define KPlatformI2cScl  (8)
-```
-
-- `config.h` 改用 platform 常量（替代硬编码 `CONFIG_SENSOR_SDA_GPIO`/`SCL_GPIO`）
-- 烧录前需对照 S3 DevKitC-1 原理图核对 GPIO8/18 无冲突；如有冲突改此常量即可
-
----
-
-## 修正后的执行顺序
-
-1. 更新 `PLAN.md`（本修订版，即本文档）
-2. 建 `platform/` 兼容层 + 改 `config.h` / `power_manager.c` / `main.c` / `CMakeLists.txt`
-3. 拆 `sdkconfig.defaults`（通用 + `.esp32p4` + `.esp32s3`）+ 新增 `partitions_8mb.csv`
-4. 安装 Xtensa 工具链 → `idf.py set-target esp32s3` → `idf.py build` → 修复错误 → 产出 bin
-5. 文档同步（README ×2 / MEMORY_LAYOUT / POWER_BUDGET / HARDWARE）
-6. commit + push 到 `origin/main`
-
-## 预期与边界
-
-- 首次 S3 编译预计遇到 3-5 个配置相关错误，属正常范围，1-2 小时可修完
-- 本轮只做兼容层 + 编译验证，不做烧录（待购板），不改传感器/BLE/TFLite 业务代码
+- DNS 污染若导致 `--resolve` 失效，切换其他 IPv4 候选地址重试
+- CSV 解析需确认每受试者实际列数一致（部分含 `resp`）
+- ECG 仅存备用，不参与模型输入（部署端无 ECG 传感器，避免上帝特征）
+- 预计耗时：下载 ~50MB + 解析 4.8 万窗（数分钟）

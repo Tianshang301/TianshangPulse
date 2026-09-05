@@ -39,6 +39,22 @@ firmware/main/tflite/inference_engine.cc 加载
 - 患者级隔离划分（GroupShuffleSplit，28 训 / 7 验）
 - 每输入一次推理需最近 1 秒 PPG 历史（固件维护滑动缓冲，见 `KSensorBufferSize`）
 
+> **⚠️ 实测修正（2026-09-05）**：端到端深度模型（LSTM/CNN）在小患者池上过拟合，val AUC ≤0.74。
+> 端侧 AF 检测**改采 RR 间期特征 + 轻量分类器**路线（见 §4.1），原始波形 LSTM 方案已弃用。
+
+### 4.1 AF 检测分类器（最终定档）
+
+| 项 | 值 |
+|---|---|
+| 输入特征 | RR 间期统计：`rri_std` / `rmssd` / `pnn50` / `cv` / HR 代理 / 波形一阶差分 std（6 维） |
+| 特征来源 | PPG 峰值检测（`scipy.signal.find_peaks`，min 间距 0.4s）→ 间期 → 统计量 |
+| 分类器 | 逻辑回归（7 参数） |
+| 输入窗口 | **4 秒非重叠窗口** @100Hz（400 点，含 ~3-4 心跳周期） |
+| 验证结果 | 患者隔离 val AUC **0.928** / acc 0.856 / f1 0.781（seed 42） |
+| 固件落地 | 峰值检测 → 特征 → 分类器（INT8 可部署，见 `docs/MEMORY_LAYOUT.md`） |
+
+> 训练脚本 `scripts/train_af_model.py`，数据准备 `scripts/prepare_af_dataset.py`（均固定 seed 可复现）。
+
 ## 5. 模型版本
 
 | 版本 | 结构 | 精度 | 延迟(PC) | 延迟(ESP32-P4) | 备注 |

@@ -58,11 +58,13 @@ def preprocess_window(ppg_win):
     return np.clip(ppg_win, -3.0, 3.0)
 
 
-def load_subject(folder, prefix, window_samples, step_samples, max_nan_frac=0.25):
+def load_subject(folder, prefix, window_samples, step_samples, target_rate=100.0,
+                 max_nan_frac=0.25):
     """Return (ppg_windows, patient_ids) for one subject.
 
     Sparse NaNs are linearly interpolated; subjects whose PPG is mostly
     missing (> max_nan_frac) are skipped entirely.
+    Windows are resampled to target_rate*seconds points (default 100 Hz).
     """
     data_file = os.path.join(folder, f"{prefix}_data.csv")
     df = pd.read_csv(data_file)
@@ -77,11 +79,12 @@ def load_subject(folder, prefix, window_samples, step_samples, max_nan_frac=0.25
     ppg = series.interpolate(method="linear").bfill().ffill().to_numpy()
     ppg = bandpass(ppg)
 
+    target_samples = int(round(target_rate * window_samples / METADATA["signal_rate_hz"]))
     windows = []
     n = len(ppg)
     for start in range(0, n - window_samples + 1, step_samples):
         seg = ppg[start:start + window_samples]
-        seg = resample_window(seg, window_samples, 100)
+        seg = resample_window(seg, window_samples, target_samples)
         seg = preprocess_window(seg)
         windows.append(seg)
 
@@ -92,8 +95,8 @@ def main():
     parser = argparse.ArgumentParser(description="Prepare MIMIC PERform AF dataset")
     parser.add_argument("--raw-root", default=RAW_ROOT)
     parser.add_argument("--out-dir", default=OUT_DIR)
-    parser.add_argument("--window-sec", type=float, default=1.0)
-    parser.add_argument("--step-sec", type=float, default=0.5)
+    parser.add_argument("--window-sec", type=float, default=4.0)
+    parser.add_argument("--step-sec", type=float, default=4.0)
     parser.add_argument("--val-ratio", type=float, default=0.2)
     parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
@@ -101,6 +104,8 @@ def main():
     sample_rate = METADATA["signal_rate_hz"]
     window_samples = int(round(args.window_sec * sample_rate))
     step_samples = max(1, int(round(args.step_sec * sample_rate)))
+    target_rate = METADATA.get("target_rate_hz", 100.0)
+    target_samples = int(round(target_rate * args.window_sec))
 
     groups = [
         ("af", os.path.join(args.raw_root, "af", "mimic_perform_af_csv"), "mimic_perform_af", 1),
@@ -121,13 +126,14 @@ def main():
         for subj_file in subjects:
             subj_prefix = subj_file[: -len("_data.csv")]
             pat_id = subj_prefix.rsplit("_", 1)[-1]
-            wins = load_subject(folder, subj_prefix, window_samples, step_samples)
+            wins = load_subject(folder, subj_prefix, window_samples, step_samples,
+                                target_rate=target_rate)
             all_windows.extend(wins)
             all_labels.extend([label] * len(wins))
             all_patients.extend([f"{label_name}_{pat_id}"] * len(wins))
             print(f"    {subj_prefix}: {len(wins)} windows")
 
-    X = np.asarray(all_windows, dtype=np.float32)[:, :, None]  # (N, 100, 1)
+    X = np.asarray(all_windows, dtype=np.float32)[:, :, None]  # (N, target_samples, 1)
     y = np.asarray(all_labels, dtype=np.int8)
     patients = np.asarray(all_patients)
 
@@ -154,14 +160,14 @@ def main():
         "window_sec": args.window_sec,
         "step_sec": args.step_sec,
         "window_samples_source": window_samples,
-        "target_samples": 100,
+        "target_samples": target_samples,
         "total_windows": int(len(y)),
         "train_windows": int(len(train_idx)),
         "val_windows": int(len(val_idx)),
         "train_patients": len(train_patients),
         "val_patients": len(val_patients),
         "seed": args.seed,
-        "note": "single channel PPG (100,1); ECG/resp not used for model input",
+        "note": f"single channel PPG ({target_samples},1) @ {target_rate:.0f}Hz; ECG/resp not used for model input",
     }
     meta_path = os.path.join(args.out_dir, "mimic_perform_af_meta.json")
     with open(meta_path, "w", encoding="utf-8") as f:

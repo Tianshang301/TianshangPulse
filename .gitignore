@@ -29,11 +29,13 @@ Thumbs.db
 *.log
 
 # Model artifacts (keep source only, ignore binaries)
-model/*.onnx
-model/*.pt
-model/*.tflite
-model/*.h5
-model/*.cc
+model/**/*.onnx
+model/**/*.pt
+model/**/*.pth
+model/**/*.tflite
+model/**/*.h5
+model/**/*.cc
+model/**/*.json
 
 # Calibration data
 data/*.npz

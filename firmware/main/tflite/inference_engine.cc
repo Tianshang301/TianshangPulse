@@ -1,5 +1,6 @@
 #include <string.h>
 #include "tflite/inference_engine.h"
+#include "sensors/signal_gate.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "config.h"
@@ -26,6 +27,30 @@ esp_err_t inference_engine_init(void)
 esp_err_t inference_engine_run(void)
 {
     memset(&s_result, 0, sizeof(s_result));
+    return ESP_OK;
+}
+
+esp_err_t inference_engine_run_gated(int gated_level)
+{
+    memset(&s_result, 0, sizeof(s_result));
+
+    switch (gated_level) {
+    case SIGNAL_GATE_HIGH_MOTION:
+    case SIGNAL_GATE_LOW_SQI:
+        /* 信号不可信：跳过分类，抑制 AF 异常输出；置信度置 0 */
+        s_result.confidence = 0;
+        s_result.anomaly_flag = 0;
+        return ESP_OK;
+    case SIGNAL_GATE_LOW_MOTION:
+        /* 中运动：正常推理，但压低置信度上限（30-60 区间） */
+        inference_engine_run();
+        if (s_result.confidence > 60) s_result.confidence = 60;
+        break;
+    case SIGNAL_GATE_ACTIVE:
+    default:
+        inference_engine_run();
+        break;
+    }
     return ESP_OK;
 }
 

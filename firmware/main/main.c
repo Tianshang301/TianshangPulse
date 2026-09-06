@@ -6,6 +6,8 @@
 #include "nvs_flash.h"
 #include "config.h"
 #include "sensors/sensor.h"
+#include "sensors/mpu6886.h"
+#include "sensors/signal_gate.h"
 #include "ble/gatt_server.h"
 #include "power/power_manager.h"
 #include "ui/ui_manager.h"
@@ -14,6 +16,15 @@
 #define MAIN_TAG "main"
 
 static const char *kModelTag = "model:v1.0.0";
+
+/* 4s @100Hz 窗口（含 1 个采样点余量，环形写指针缓存） */
+#define WIN_LEN             400
+#define IMU_LEN             40        // 4s @10Hz 加速度样本
+
+static float s_ppg_win[WIN_LEN];      // 当前推理窗（归一化）
+static int16_t s_ax[IMU_LEN], s_ay[IMU_LEN], s_az[IMU_LEN];
+
+static volatile bool s_win_ready = false;
 
 static void sensor_task(void *arg);
 static void inference_task(void *arg);
@@ -28,9 +39,7 @@ void app_main(void)
     ESP_ERROR_CHECK(err);
 
     ESP_LOGI(MAIN_TAG, "TianshangPulse boot, %s, %s, PSRAM=%u bytes",
-             kModelTag,
-             KPlatformName,
-             (unsigned)esp_psram_get_size());
+             kModelTag, KPlatformName, (unsigned)esp_psram_get_size());
 
     ESP_ERROR_CHECK(power_manager_init());
     ESP_ERROR_CHECK(sensor_init());
@@ -48,8 +57,30 @@ void app_main(void)
 static void sensor_task(void *arg)
 {
     (void)arg;
+    uint32_t idx = 0;
     for (;;) {
+        sensor_ppg_data_t ppg = {0};
+        sensor_imu_data_t imu = {0};
         sensor_sample();
+        sensor_get_ppg(&ppg);
+        sensor_get_imu(&imu);
+
+        s_ppg_win[idx] = (float)ppg.heart_rate_bpm;   // 占位：当前驱动无真实波形，后续接 MAX30102 FIFO
+
+        /* 按 10Hz 收集 IMU（每 10 次采样@100Hz 一次），4s 共 40 点 */
+        if ((idx % 10) == 0) {
+            uint32_t wi = idx / 10;
+            if (wi < IMU_LEN) {
+                s_ax[wi] = imu.accel_x;
+                s_ay[wi] = imu.accel_y;
+                s_az[wi] = imu.accel_z;
+            }
+        }
+
+        idx = (idx + 1) % WIN_LEN;
+        if (idx == 0) {
+            s_win_ready = true;                       // 每满 4s 置位
+        }
         vTaskDelay(pdMS_TO_TICKS(1000 / KSensorSampleRateHz));
     }
 }
@@ -57,8 +88,22 @@ static void sensor_task(void *arg)
 static void inference_task(void *arg)
 {
     (void)arg;
+    signal_gate_init();
     for (;;) {
-        inference_engine_run();
+        if (s_win_ready) {
+            float energy = signal_gate_motion_energy(s_ax, s_ay, s_az, IMU_LEN, 10);
+            int n_peaks = 0;
+            float sqi = signal_gate_ppg_sqi(s_ppg_win, WIN_LEN, KSensorSampleRateHz, &n_peaks);
+            signal_gate_result_t gate = signal_gate_evaluate(energy, sqi);
+
+            inference_engine_run_gated(gate.level);
+            inference_result_t res = {0};
+            inference_engine_get_result(&res);
+
+            ESP_LOGI(MAIN_TAG, "gate=%d motion=%.4f sqi=%.3f peaks=%d anomaly=%u conf=%u",
+                     gate.level, energy, sqi, n_peaks, res.anomaly_flag, res.confidence);
+            s_win_ready = false;
+        }
         vTaskDelay(pdMS_TO_TICKS(KInferenceIntervalMs));
     }
 }

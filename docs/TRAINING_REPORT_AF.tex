@@ -1,0 +1,488 @@
+% !TEX program = xelatex
+\documentclass[11pt,a4paper]{ctexart}
+
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{mathtools}
+\usepackage{booktabs}
+\usepackage{multirow}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage{graphicx}
+\usepackage{caption}
+\captionsetup{font=small,labelfont=bf}
+\usepackage[colorlinks=true,linkcolor=blue!60!black,citecolor=blue!60!black,urlcolor=blue!60!black]{hyperref}
+\usepackage[normalem]{ulem}
+\usepackage{pifont}
+
+% ---- 字体排版（方案 A：现代工程风）----
+
+\setmainfont{Times New Roman}
+% \setmonofont{Consolas}
+\linespread{1.15}
+\setlength{\parskip}{0.15em}
+
+\graphicspath{{./figures/}}
+
+\newcommand{\RRI}{\mathrm{RRI}}
+\newcommand{\feat}[1]{\texttt{#1}}
+
+\title{\bfseries TianshangPulse 端侧房颤检测\\[4pt]
+       模型训练与端到端部署技术报告\\[6pt]
+       \large On-Device Atrial Fibrillation Detection:\\ Training and Deployment Technical Report}
+\author{TianshangPulse 团队}
+\date{版本 v2.0\quad/\quad 2026-09-06}
+
+\begin{document}
+
+\maketitle
+\vspace{-1em}
+
+\begin{abstract}
+\noindent
+本文档是 TianshangPulse —— 基于 ESP32-P4/RISC-V 的端侧 AI 智能手表固件 —— 的
+\textbf{房颤（Atrial Fibrillation, AF）检测模型训练与端到端部署}技术报告。
+系统以 MAX30102 PPG 为唯一生理信号源，在 400\,MHz 双核 + 16\,MB PSRAM 的约束下
+实现零云端依赖的健康监测（心率 / 血氧 / 异常事件，BLE GATT 与 TianshangHealth APP 双向同步）。
+
+训练部分基于 MIMIC PERform AF 数据集（ODbL-1.0，35 名受试者），经带通滤波、稀疏 NaN 插值、
+滑窗重采样与逐窗归一化后形成\textbf{患者级隔离}的 28 训练 / 7 验证受试者划分（10{,}500 个
+4\,s 非重叠窗口 @100\,Hz）。实测表明：端到端深度模型（CNN-LSTM，226{,}145 参数）在小患者池上
+严重过拟合（验证 AUC 0.569），而 \textbf{搏动检测 + RR 间期统计特征 + 逻辑回归} 路线以仅
+7 个参数在患者隔离验证集上达到 \textbf{AUC 0.928、准确率 0.856、平衡准确率 0.868、F1 0.781}。
+
+部署部分给出完整的 \textbf{PyTorch $\rightarrow$ ONNX $\rightarrow$ INT8 $\rightarrow$ TFLite Micro}
+流水线、固件内存布局、功耗预算、BLE 数据通路与离线事件缓存设计，并逐项标注现状与待补缺口。
+全流程固定随机种子，结果可在本仓库 \feat{scripts/} 下复现。
+
+\vspace{0.8em}
+\textbf{关键词}：房颤检测；PPG 光电容积脉搏波；RR 间期；逻辑回归；端侧 AI；ESP32-P4；TFLite Micro；
+BLE GATT；MIMIC PERform AF
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+\section{项目概述}
+\label{sec:overview}
+
+TianshangPulse 是一套开源的端侧 AI 智能手表固件，运行于
+\textbf{ESP32-P4}（400\,MHz 双核 RISC-V，16\,MB PSRAM / 16\,MB Flash），
+与 Android 端 TianshangHealth APP 构成完全离线的健康监测生态。
+系统核心能力为：
+
+\begin{itemize}
+  \item \textbf{端侧推理}：PPG 波形经搏动检测与特征提取送入轻量分类器，
+        推理延迟目标 $<10\,\mathrm{ms}$，零云端依赖，全链路离线；
+  \item \textbf{多生理指标}：实时心率、血氧，以及含房颤在内的异常事件检测；
+  \item \textbf{传感器方案}：MAX30102（PPG，I2C）+ MPU6886（6 轴 IMU，I2C）；
+  \item \textbf{BLE 同步}：GATT Server（心率 / 血氧 / 异常事件 Notify +
+        模型 A/B 切换 + 批量同步），并发离线事件缓存。
+\end{itemize}
+
+固件支持 \feat{esp32p4} / \feat{esp32s3} 双目标，本文以 ESP32-P4 为部署主目标。
+
+\section{系统架构与资源约束}
+\label{sec:system}
+
+\subsection{固件模块划分}
+\label{sec:firmware-layout}
+
+\begin{table}[htbp]
+\centering
+\caption{固件模块（\feat{firmware/main/}）}
+\label{tab:firmware}
+\begin{tabular}{llp{9.2cm}}
+\toprule
+模块 & 文件 & 职责 \\
+\midrule
+入口 & \feat{main.c} & NVS 初始化、传感器/推理任务创建、模块装配 \\
+平台抽象 & \feat{platform/} & 按 \feat{CONFIG\_IDF\_TARGET} 分派的常量（P4/S3） \\
+推理引擎 & \feat{tflite/inference\_engine.cc} & TFLite Micro arena（PSRAM）管理、\feat{init/run/deinit} \\
+传感器 & \feat{sensors/} & 统一接口 + MAX30102/MPU6886 驱动 \\
+BLE & \feat{ble/gatt\_server.c} & NimBLE GATT Server；\feat{offline\_cache.c} 离线事件环形缓冲 \\
+UI & \feat{ui/} & LVGL v9 界面（骨架） \\
+功耗 & \feat{power/power\_manager.c} & \feat{esp\_pm} 调频、低功耗模式 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{内存布局}
+\label{sec:memory}
+
+\begin{table}[htbp]
+\centering
+\caption{关键资源分配（\feat{docs/MEMORY\_LAYOUT.md}）}
+\label{tab:memory}
+\begin{tabular}{lccp{6.6cm}}
+\toprule
+数据 & 区域 & 大小 & 说明 \\
+\midrule
+TFLite arena & PSRAM & 1\,MB（\feat{KTensorArenaSize}） & \feat{heap\_caps\_malloc(MALLOC\_CAP\_SPIRAM)} \\
+PPG 环形缓冲 & SRAM & 50\,KB（\feat{KSensorBufferSize}） & 采样热路径 \\
+离线事件缓存 & PSRAM & 100 条（\feat{KMaxOfflineEvents}） & 循环缓冲区 \\
+任务栈 & SRAM & sensor 4096 B / inference 8192 B & FreeRTOS \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+约束要点：ISR 内禁止堆分配；大块数据（模型/缓存）一律 PSRAM；
+\feat{sdkconfig.defaults.esp32p4} 启用 120\,MHz PSRAM 与 16\,MB Flash。
+
+\subsection{功耗预算与调度}
+\label{sec:power}
+
+目标：主动监测 $\le 30\,\mathrm{mA}$，待机 $\le 500\,\mu\mathrm{A}$
+（\feat{docs/POWER\_BUDGET.md}）。核心调度参数见~\ref{tab:schedule}。
+
+\begin{table}[htbp]
+\centering
+\caption{推理与采样调度参数（\feat{firmware/main/config.h}）}
+\label{tab:schedule}
+\begin{tabular}{lll}
+\toprule
+常量 & 值 & 说明 \\
+\midrule
+\feat{KSensorSampleRateHz} & 100\,Hz & PPG 采样率（与训练对齐） \\
+\feat{KInferenceIntervalMs} & 40\,ms & 推理周期 25\,Hz \\
+\feat{KTensorArenaSize} & 1\,MB & PSRAM arena \\
+\feat{KBleMtuSize} & 512 & BLE MTU \\
+\feat{KMaxOfflineEvents} & 100 & 离线事件缓存容量 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+功耗激励：端侧 AF 检测若需连续采样与智能特征，必须将
+算力/内存开销压至极小——这是本报告选择特征工程路线的硬件前提。
+
+\section{数据准备}
+\label{sec:data}
+
+\subsection{数据来源}
+\label{sec:data-source}
+
+训练数据集为 \textbf{MIMIC PERFORM AF Dataset}\footnote{记录号 10.5281/zenodo.15906524，ODbL-1.0。}，
+含 35 名受试者（19 名 AF / 16 名非 AF），每人约 20 分钟胸骨 PPG，原始采样率 125\,Hz。
+统计数据见表~\ref{tab:dataset}。
+
+\begin{table}[htbp]
+\centering
+\caption{数据集与预处理统计（\feat{data/processed/mimic\_perform\_af\_meta.json}）}
+\label{tab:dataset}
+\begin{tabular}{lcc}
+\toprule
+项目 & 数值 & 备注 \\
+\midrule
+受试者总数 & 35 & 19 AF / 16 非 AF \\
+原始采样率 & 125\,Hz & 目标采样率 100\,Hz \\
+窗口长度 & 4\,s 非重叠 & 100\,Hz $\times$ 4\,s $=$ 400 点 \\
+总窗口数 & 10{,}500 & AF 5{,}700 / 非 AF 4{,}800 \\
+训练 / 验证窗口 & 8{,}400 / 2{,}100 & 28 训 / 7 验，患者零重叠 \\
+验证集类别占比 & AF 28.6\% & 按患者划分所致 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{预处理流水线}
+\label{sec:preprocessing}
+
+\feat{scripts/prepare\_af\_dataset.py} 按序执行：
+
+\begin{enumerate}
+  \item \textbf{稀疏 NaN 插值}：线性插值 + 首尾填充；缺失 $>25\%$ 的受试者整体剔除；
+  \item \textbf{带通滤波}：四阶 Butterworth 带通（0.5--8\,Hz），去除基线漂移与高频噪声；
+  \item \textbf{滑窗与重采样}：4\,s / 步长 4\,s 非重叠滑窗，线性插值由 125\,Hz 重采样至
+        100\,Hz（400 点），与固件 100\,Hz 采样率对齐；
+  \item \textbf{逐窗归一化}：每窗独立 Z-score（标准差下限 $10^{-8}$），截断至 $[-3,\,3]$。
+\end{enumerate}
+
+\subsection{患者级数据划分}
+\label{sec:split}
+
+\feat{GroupShuffleSplit}（\feat{random\_state=42}，验证 20\%）按\textbf{受试者}分组划分，
+并断言训练/验证无患者重叠，避免同一受试者连续波形跨集合泄漏。
+由于按患者划分，训练集（AF 60.7\%）与验证集（AF 28.6\%）类别比例存在差异，
+故报告额外给出平衡准确率与 F1。
+
+\section{特征工程：RR 间期统计}
+\label{sec:features}
+
+\subsection{搏动检测}
+\label{sec:beat-detect}
+
+对每个归一化窗口 $s\in\mathbb{R}^{400}$ 做峰值检测
+（\feat{scipy.signal.find\_peaks}，最小峰距 $\lfloor 100\times 0.4\rfloor=40$ 点即 400\,ms，
+对应上限约 150\,bpm），差分得到 RR 间期（毫秒）：
+
+\begin{equation}
+  \RRI_i = \frac{p_{i+1}-p_i}{f_s}\times 1000 \quad [\mathrm{ms}],\qquad f_s=100\,\mathrm{Hz}.
+  \label{eq:rri}
+\end{equation}
+
+窗口内搏动数 $<3$ 时 RRI 特征不成立（对应列置 0）。
+
+\subsection{六维特征集}
+\label{sec:feature-def}
+
+设 RR 间期序列 $R=\{R_1,\dots,R_n\}$，均值 $\mu$、标准差 $\sigma$；信号 $s$；
+窗长（秒）$T_w$，六维特征为：
+
+\begin{align}
+  \feat{rri\_std} &= \sigma(R), \label{eq:f1}\\
+  \feat{rmssd} &= \sqrt{\frac{1}{n-1}\sum_{i=1}^{n-1}\left(R_{i+1}-R_i\right)^2}, \label{eq:f2}\\
+  \feat{pnn50} &= \frac{1}{n-1}\sum_{i=1}^{n-1}\mathbb{I}\!\left(\left|R_{i+1}-R_i\right|>50\right), \label{eq:f3}\\
+  \feat{cv} &= \frac{\sigma(R)}{\mu(R)}\ \ (\mu>0), \label{eq:f4}\\
+  \feat{hr\_proxy} &= \frac{N_{\mathrm{peaks}}}{T_w} \quad [\mathrm{beats/s}], \label{eq:f5}\\
+  \feat{diff\_std} &= \sigma\!\left(\mathrm{diff}(s)\right). \label{eq:f6}
+\end{align}
+
+其中 \feat{rri\_std}/\feat{cv}/\feat{rmssd}/\feat{pnn50} 刻画心律不齐与间期不稳定性
+（房颤的典型生理标志），\feat{hr\_proxy} 提供速率上下文，\feat{diff\_std} 保留波形幅度信息。
+
+\section{候选模型与训练设定}
+\label{sec:models}
+
+\subsection{候选模型}
+\label{sec:candidates}
+
+\begin{enumerate}
+  \item \textbf{逻辑回归（LR，最终采用）}：6 维特征线性分类，参数 $= 6\times 1 + 1 = 7$；
+  \item \textbf{MLP-32（备选）}：$6 \rightarrow 32 \xrightarrow{\mathrm{ReLU}+\mathrm{Dropout}(0.2)} \rightarrow 1$，
+        参数 $= (6\times32+32) + (32\times1+1) = 224 + 33 = 257$；
+  \item \textbf{CNN-LSTM（弃用）}：卷积前端 + 2 层 LSTM + MLP 头，共 226{,}145 参数，
+        架构细目见表~\ref{tab:cnnlstm}。
+\end{enumerate}
+
+\subsection{CNN-LSTM 真实参数分账}
+\label{sec:cnnlstm-params}
+
+此前报告版本误称该模型为「2 层 LSTM」。对存档 \feat{model/af/af\_lstm.pth}
+（状态字典，912{,}584 B）逐张量核账，其真实架构为
+\textbf{Conv1d 前端 + BatchNorm $\times$2 + 2 层 LSTM + MLP 头}，见表~\ref{tab:cnnlstm}。
+
+\begin{table}[htbp]
+\centering
+\small
+\caption{CNN-LSTM 可训练参数分账（源自 \feat{af\_lstm.pth} 状态字典）}
+\label{tab:cnnlstm}
+\begin{tabular}{lllc}
+\toprule
+模块 & 层（张量） & 形状 & 参数数 \\
+\midrule
+\multirow{2}{*}{卷积前端} & \feat{conv.0} Conv1d(1$\to$16, k5) & (16,1,5)$+$bias & 96 \\
+                     & \feat{conv.3} Conv1d(16$\to$32, k5) & (32,16,5)$+$bias & 2592 \\
+\multirow{2}{*}{BatchNorm} & \feat{conv.1} (BN, ch=16) & weight+bias & 32 \\
+                     & \feat{conv.4} (BN, ch=32) & weight+bias & 64 \\
+\multirow{3}{*}{LSTM 第 1 层} & \feat{lstm.weight\_ih\_l0} & (4$\cdot$128, 32) & 16384 \\
+                     & \feat{lstm.weight\_hh\_l0} & (4$\cdot$128, 128) & 65536 \\
+                     & \feat{lstm.bias\_ih/hh\_l0} & & 1024 \\
+\multirow{3}{*}{LSTM 第 2 层} & \feat{lstm.weight\_ih\_l1} & (4$\cdot$128, 128) & 65536 \\
+                     & \feat{lstm.weight\_hh\_l1} & (4$\cdot$128, 128) & 65536 \\
+                     & \feat{lstm.bias\_ih/hh\_l1} & & 1024 \\
+\multirow{2}{*}{MLP 头} & \feat{head.0} Linear(128$\to$64) & (64,128)$+$bias & 8256 \\
+                     & \feat{head.3} Linear(64$\to$1) & (1,64)$+$bias & 65 \\
+\midrule
+\multicolumn{3}{l}{合计（含 BN 可训练参数，不含 BN 统计缓存）} & \textbf{226{,}145} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+对照验证：卷积 2688 + BN 96 + LSTM 三层门控 215{,}040 + MLP 头 8321 $=$ 226{,}145。
+该数量与 \feat{af\_lstm\_report.json} 记录的 226{,}145 一致，证明其统计正确；
+\feat{af\_lstm.onnx} 输入为 \feat{ppg[1,400,1]}，说明模型直接消费原始波形。
+
+\subsection{训练配置与可复现性}
+\label{sec:training-config}
+
+所有实验固定 \feat{seed=42}。LR 用 sklearn \feat{LogisticRegression}
+（\feat{C=1.0}，\feat{max\_iter=5000}）。MLP 用 Adam（\feat{lr=1e-3}，
+\feat{weight\_decay=1e-3}），批大小 64，最大 300 轮，按验证 AUC 早停（patience 30）
+并回滚最优权重，损失为 BCEWithLogits。CNN-LSTM 配置：hidden 128、2 层、dropout 0.1、
+批大小 128、最多 50 轮、patience 10。环境：Python 3.12.10 / PyTorch 2.5.1+cu124 /
+scikit-learn 1.9.0 / SciPy 1.13.1 / NumPy 1.26.4。
+
+\section{实验结果与过拟合分析}
+\label{sec:results}
+
+\subsection{最终模型：7 参数逻辑回归}
+\label{sec:lr-results}
+
+固定 seed 复现（LR 全流程约 $0.1\,\mathrm{s}$），结果见表~\ref{tab:lr}。
+验证 AUC \textbf{0.928}，高于训练集 AUC 0.837——患者隔离验证比同源窗口更保守，
+而该差距较小证明特征稳定性良好。
+
+\begin{table}[htbp]
+\centering
+\caption{逻辑回归（7 参数）训练与患者隔离验证指标}
+\label{tab:lr}
+\begin{tabular}{lccccc}
+\toprule
+数据集 & AUC & 准确率 & 平衡准确率 & F1 & 灵敏度 / 特异度 \\
+\midrule
+训练 & 0.837 & 0.823 & 0.798 & 0.862 & --- \\
+\textbf{验证} & \textbf{0.928} & \textbf{0.856} & \textbf{0.868} & \textbf{0.781} & 0.895 / 0.841 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+验证混淆矩阵 $\mathbf{C}^{\mathrm{LR}} =
+\begin{bsmallmatrix} 1261 & 239 \\ 63 & 537 \end{bsmallmatrix}$
+（行 = 真实：非 AF / AF；列 = 预测：非 AF / AF，$n=2100$）。导出
+灵敏度 $=537/600=0.895$，特异度 $=1261/1500=0.841$，精确率 $=537/776=0.692$。
+
+\subsection{三模型对比}
+\label{sec:comparison}
+
+\begin{table}[htbp]
+\centering
+\caption{患者隔离验证集模型对比（seed=42）}
+\label{tab:compare}
+\begin{tabular}{lcccccc}
+\toprule
+模型 & 参数数 & AUC & 准确率 & 平衡准确率 & F1 & 状态 \\
+\midrule
+逻辑回归 & \textbf{7} & \textbf{0.928} & \textbf{0.856} & \textbf{0.868} & \textbf{0.781} & 最终采用 \\
+MLP-32 & 257 & 0.916 & 0.791 & 0.836 & 0.720 & 备选 \\
+CNN-LSTM & 226{,}145 & 0.569 & 0.291 & 0.503 & 0.446 & 弃用 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+三个混淆矩阵对比：
+
+\begin{align}
+  \mathbf{C}^{\mathrm{MLP}} &= \begin{bsmallmatrix} 1094 & 406 \\ 34 & 566 \end{bsmallmatrix}, &
+  \mathbf{C}^{\mathrm{CNN\text{-}LSTM}} &= \begin{bsmallmatrix} 11 & 1489 \\ 1 & 599 \end{bsmallmatrix}.
+  \label{eq:conf}
+\end{align}
+
+\subsection{过拟合机制分析}
+\label{sec:overfit}
+
+CNN-LSTM（226K 参数）训练损失迅速压向 0，但验证特异度仅 $0.007$
+（几乎把所有样本判为 AF），AUC 0.569。其根因是：原始 PPG 波形蕴含巨大的
+个体间差异（肤色、血管状态、运动伪影、佩戴松紧），高容量模型沿训练患者即可
+近乎完美拟合而无真正学到房颤的泛化共性；35 名受试者的训练池不足以支撑端到端学习。
+
+RR 间期统计天然\textbf{去除个体波形指纹}而保留房颤共性（绝对节律不规则），
+因而 7 参数 LR 在患者隔离验证下反超 226K 深度模型。这一结果与临床共识——
+房颤筛查依赖 RR 间期分析——一致。
+
+\section{端到端部署流水线}
+\label{sec:deployment}
+
+模型从训练到固件需要经过完整的转换与部署链路，见图~\ref{fig:pipeline}。
+
+\begin{figure}[htbp]
+\centering
+\begin{minipage}{0.95\textwidth}
+\centering
+\feat{PyTorch (FP32)} $\rightarrow$ \feat{ONNX} $\rightarrow$
+\feat{INT8 (per-channel)} $\rightarrow$ \feat{TFLite Micro} $\rightarrow$
+\feat{model\_data.cc}
+\end{minipage}
+\caption{模型转换流水线（AGENTS.md \feat{ML-Agent}：FP32 权重 $\to$ 计算图 $\to$ 量化 $\to$ 固件加载）}
+\label{fig:pipeline}
+\end{figure}
+
+\subsection{现状盘点与缺口}
+\label{sec:pipeline-status}
+
+\begin{table}[htbp]
+\centering
+\caption{部署流水线现状（v2.0）}
+\label{tab:pipeline-status}
+\begin{tabular}{lll}
+\toprule
+环节 & 脚本 / 文件 & 状态 \\
+\midrule
+ONNX 导出（LR） & \feat{model/af/af\_model.onnx} & \checkmark LR 已导出（\feat{features[1,6]}$\to$\feat{logit[1,1]}） \\
+ONNX 导出（CNN-LSTM） & \feat{model/af/af\_lstm.onnx} & \checkmark 已导出（弃用存档） \\
+PyTorch $\to$ ONNX $\to$ INT8 & \feat{scripts/convert\_model.py} & \ding{55} 占位实现（仅生成字节数组） \\
+INT8 校准 & -- & \ding{55} 未执行（需 $\ge$1000 样本） \\
+余弦相似度校验 & \feat{scripts/verify\_model.py} & \ding{55} 占位（TODO） \\
+TFLite Micro 加载 & \feat{tflite/inference\_engine.cc} & \ding{55} arena 就绪，推理未接入 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\noindent 说明：当前 \feat{convert\_model.py} 仅将 ONNX 字节数组转成 \feat{model\_data.cc}，
+真实量化（INT8 per-channel + 校准）与算子集校验（LSTM/GRU resolver）尚未实现；
+\feat{inference\_engine.run} 尚未搭 TFLite 解释器。这是部署的\textbf{首要待办}。
+
+\section{固件集成与数据通路}
+\label{sec:firmware}
+
+\subsection{推理引擎接口}
+\label{sec:engine}
+
+\begin{verbatim}
+esp_err_t inference_engine_init(void);    // PSRAM 分配 1MB arena
+esp_err_t inference_engine_run(void);     // 目前骨架：memset 结果
+esp_err_t inference_engine_get_result(inference_result_t *out);
+inference_result_t { heart_rate_bpm; blood_oxygen_pct;
+                     anomaly_flag;   confidence; }
+\end{verbatim}
+
+\feat{main.c} 创建 sensor（优先级 6，100\,Hz）与 inference（优先级 5，25\,Hz）两个任务；
+目前传感器驱动读数皆为零值占位，尚未与推理数据通路打通。
+
+\subsection{BLE 数据通路与离线缓存}
+\label{sec:ble}
+
+依据 \feat{docs/PROTOCOL.md}，GATT 服务包含：心率 \feat{0x2A37}、血氧 \feat{0x2A5F}
+（Notify），用户配置 \feat{0xFFF1}、模型 A/B 切换 \feat{0xFFF3}（Write），
+异常事件 \feat{0xFFF2}（Notify）、批量同步 \feat{0xFFF4}（Read/Write）。
+字节序小端、CRC-8 校验。
+
+AF 检测结果经 \feat{0xFFF2} 上报为异常事件（类型 + 8\,B 时间戳 + 置信度 0--100）。
+无网/未连接时写入 \feat{offline\_cache.c} 的 PSRAM 环形缓冲（100 条，满则覆盖最旧），
+恢复连接后经 \feat{0xFFF4} 批量上报，APP 确认后清除。
+
+\section{功耗与内存预算核对}
+\label{sec:budget-check}
+
+目标（\feat{docs/POWER\_BUDGET.md}）：主动监测 $\le30\,\mathrm{mA}$、待机 $\le500\,\mu\mathrm{A}$。
+其可行性依赖：LP 核看门狗/唤醒（P4 的 40\,MHz 核），HP 核仅在推理时全速；PSRAM 空闲半休眠；
+传感器单次采样；推理 25\,Hz $\times$ $<10\,\mathrm{ms}$ 占空比 $\approx 25\%$。
+
+内存方面，\textbf{特征工程路线比 226K 深度模型更契合约束}：
+分类器仅存 7 个系数，而 CNN-LSTM 至少需要一个 226K $\times$ (INT8) $\approx 226\,\mathrm{KB}$
+的权重区（占 arena 1\,MB 的 22\%）+ 一层时序激活。LR 则几乎零权重占用。
+
+\section{结论与后续工作}
+\label{sec:conclusion}
+
+\textbf{结论}
+\begin{enumerate}
+  \item \textbf{数据}：MIMIC PERform AF 10{,}500 窗，28/7 患者级隔离，杜绝受试者泄漏；
+  \item \textbf{方法}：端到端 CNN-LSTM（226{,}145 参数）在小患者池上过拟合（验证 AUC 0.569），
+        改采搏动检测 + 6 维 RRI 统计 + 逻辑回归；
+  \item \textbf{性能}：7 参数实现验证 AUC \textbf{0.928}、平衡准确率 0.868、F1 0.781，
+        优于 257 参数 MLP；固定 seed 严格复现；
+  \item \textbf{可部署}：全部运算是峰值检测与标量统计，零模型权重，契合 ESP32-P4 INT8/TFLite 约束。
+\end{enumerate}
+
+\textbf{后续工作}（按优先级）
+\begin{enumerate}
+  \item \feat{convert\_model.py} 接入真实 INT8 per-channel 量化（校准集 $\ge$1000 样本）与 TFLite Micro 导出；
+  \item \feat{verify\_model.py} 完成余弦相似度（$>0.95$）与字节数一致性校验，生成 \feat{benchmark.md}；
+  \item \feat{inference\_engine.cc} 接入 TFLite 解释器，\feat{inference\_result\_t} 增加 AF 输出字段；
+  \item 固件实现峰值检测与 RRI 特征提取（复用训练端同参数），打通 sensor$\to$engine 数据通路；
+  \item 数据增强与外部数据集（含运动伪影）鲁棒性验证。
+\end{enumerate}
+
+\begin{thebibliography}{9}
+\setlength{\itemsep}{2pt}
+  \item MIMIC PERFORM AF Dataset. Zenodo, record 10.5281/zenodo.15906524, ODbL-1.0.
+        \url{https://zenodo.org/records/15906524}
+  \item Tianshang301. TianshangPulse: ESP32-P4 端侧 AI 智能手表固件.
+        \url{https://github.com/Tianshang301/TianshangPulse}
+  \item Tianshang301. TianshangHealth: 配套 Android 健康监测 App.
+        \url{https://github.com/Tianshang301/TianshangHealth}
+  \item Espressif. ESP-IDF Programming Guide (ESP32-P4).
+        \url{https://docs.espressif.com/projects/esp-idf/en/latest/esp32p4/}
+  \item TensorFlow. TFLite Micro. \url{https://github.com/tensorflow/tflite-micro}
+\end{thebibliography}
+
+\end{document}

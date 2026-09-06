@@ -3,13 +3,26 @@
 // score = coef[0..5] * feat[0..5] + bias ; p_af = sigmoid(score)
 // p_af >= k_af_lr_threshold -> anomaly (AF)
 //
-// Features:
-//   feat[0] rri_std   RR interval std (ms)
-//   feat[1] rmssd     sqrt(mean(diff(RRI)^2)) (ms)
-//   feat[2] pnn50     fraction |diff(RRI)| > 50ms
-//   feat[3] cv        RRI std / RRI mean
-//   feat[4] hr_proxy  beats/sec proxy
-//   feat[5] diff_std  std of first difference of waveform
+// === 特征量纲表（系数大小依赖特征单位，勿混用） ===
+//   feat[0] rri_std   RR 间期标准差      [ms]   （窦性通常 <60ms，AF 明显偏高）
+//   feat[1] rmssd     相邻 RRI 差方根     [ms]
+//   feat[2] pnn50     |dRRI|>50ms 占比   [0..1] （AF 常 >0.4）
+//   feat[3] cv        RRI 变异系数 σ/μ   [--]   （AF 常 >0.2）
+//   feat[4] hr_proxy  搏动数/秒(心率代理) [1/s]  （60bpm=1.0）
+//   feat[5] diff_std  波形一阶差分标准差  [--]
+//
+// === 系数解读（为什么模型这样判） ===
+//   cv 与 pnn50 权重最大(+6.72/+4.28)：RRI 相对波动是房颤最显著标志
+//   rri_std/rmssd 权重为负：单看绝对波动对"安静但心率高"患者误伤，
+//                          模型优先用相对指标(cv/pnn50)而非绝对量
+//   hr_proxy(+1.26)：AF 常伴较快心室率，作为速率上下文
+//   bias=-3.73：全特征为 0（恒定 RRI）时概率≈0.023（判非 AF）
+//
+// === 判读示例（阈值 0.5） ===
+//   窦性(规律 RRI): rri_std≈20, rmssd≈25, pnn50≈0.0, cv≈0.03, hr≈1.0, diff≈0.3
+//     score ≈ -3.73+(-0.13)+(-0.06)+0+0.20+1.26+0.05 ≈ -2.4  -> P≈0.08 非AF
+//   房颤(RRI 极不规则): rri_std≈110, rmssd≈165, pnn50≈0.65, cv≈0.30, hr≈1.5, diff≈0.3
+//     score ≈ -3.73+(-0.72)+(-0.42)+2.78+2.02+1.88+0.05 ≈ 1.9  -> P≈0.87 判AF
 //
 // Source: model/af/af_model_lr.npz (val AUC 0.928, patient-isolated)
 
@@ -20,10 +33,13 @@
 #define K_AF_LR_N_FEATURES 6
 #define K_AF_LR_N_PARAMS   7
 
+//            rri_std[ms]  rmssd[ms]   pnn50[0-1]  cv[--]     hr_proxy[1/s] diff_std[--]
 static const float k_af_lr_coef[K_AF_LR_N_FEATURES] = {
     -0.006531655f, -0.002547544f, 4.2763f,
     6.720686f, 1.255677f, 0.1754746f,
 };
+// 注：cv/pnn50 权重最大（房颤 = RRI 绝对不规则的最强信号）；
+//     rri_std/rmssd 为负（相对指标优于绝对指标，防安静高心率误伤）
 
 static const float k_af_lr_bias = -3.732672f;
 

@@ -1,0 +1,26 @@
+{
+  "method": "T_high = 运动能量 5% 分位（门控 95% 运动窗）；静音真实 IMU 能量≈0 故安全；T_silent = 静音能量 p99",
+  "n_motion_windows": 1690,
+  "n_quiet_windows": 200,
+  "motion_energy_stats": {
+    "mean": 4.299198709651497,
+    "p50": 1.301263153553009,
+    "p95": 11.838345336914058,
+    "p05": 0.0503331508487463
+  },
+  "quiet_energy_stats": {
+    "mean": 0.05,
+    "p99": 0.05
+  },
+  "thresholds": {
+    "T_silent": 0.05,
+    "T_high": 0.0503331508487463,
+    "T_high_youden": 0.050038520246744156
+  },
+  "coverage": {
+    "pct_motion_gated_at_T_high": 0.9497041420118343,
+    "pct_motion_gated_at_T_high_by_activity": null
+  },
+  "note": "T_silent 之下正常推理；T_silent..T_high 中运动压低置信度；>=T_high 抑制 AF",
+  "quiet_source": "fallback const 0.05"
+}

@@ -5,6 +5,7 @@ idf_component_register(
         "sensors/max30102.c"
         "sensors/mpu6886.c"
         "sensors/signal_gate.c"
+        "sensors/af_features.c"
         "ble/gatt_server.c"
         "ble/offline_cache.c"
         "ui/ui_manager.c"

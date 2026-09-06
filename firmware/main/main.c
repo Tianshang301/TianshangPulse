@@ -8,6 +8,7 @@
 #include "sensors/sensor.h"
 #include "sensors/mpu6886.h"
 #include "sensors/signal_gate.h"
+#include "sensors/af_features.h"
 #include "ble/gatt_server.h"
 #include "power/power_manager.h"
 #include "ui/ui_manager.h"
@@ -96,9 +97,26 @@ static void inference_task(void *arg)
             float sqi = signal_gate_ppg_sqi(s_ppg_win, WIN_LEN, KSensorSampleRateHz, &n_peaks);
             signal_gate_result_t gate = signal_gate_evaluate(energy, sqi);
 
-            inference_engine_run_gated(gate.level);
+            if (gate.level == SIGNAL_GATE_ACTIVE ||
+                gate.level == SIGNAL_GATE_LOW_MOTION) {
+                /* 信号可信：提取 6 维 RRI 特征并运行 7 参数 LR */
+                float feat[6];
+                int n_beat = af_features_extract(s_ppg_win, WIN_LEN,
+                                                 KSensorSampleRateHz, feat);
+                if (n_beat >= 3) {
+                    inference_engine_run_features(feat);
+                } else {
+                    inference_engine_run();
+                }
+            } else {
+                inference_engine_run_gated(gate.level);
+            }
+
             inference_result_t res = {0};
             inference_engine_get_result(&res);
+            if (gate.level == SIGNAL_GATE_LOW_MOTION && res.confidence > 60) {
+                res.confidence = 60;   /* 中运动压低置信度上限 */
+            }
 
             ESP_LOGI(MAIN_TAG, "gate=%d motion=%.4f sqi=%.3f peaks=%d anomaly=%u conf=%u",
                      gate.level, energy, sqi, n_peaks, res.anomaly_flag, res.confidence);

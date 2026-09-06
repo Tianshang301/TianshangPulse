@@ -1,6 +1,7 @@
 #include <string.h>
 #include "tflite/inference_engine.h"
 #include "sensors/signal_gate.h"
+#include "af_lr_coefs.h"
 #include "esp_heap_caps.h"
 #include "esp_log.h"
 #include "config.h"
@@ -21,12 +22,28 @@ esp_err_t inference_engine_init(void)
         return ESP_ERR_NO_MEM;
     }
     ESP_LOGI(TAG, "arena allocated at %p size=%d", s_arena, KTensorArenaSize);
+    ESP_LOGI(TAG, "AF LR model: %d coefs, bias=%.4f, threshold=%.2f",
+             K_AF_LR_N_FEATURES, (double)k_af_lr_bias, (double)k_af_lr_threshold);
     return ESP_OK;
 }
 
 esp_err_t inference_engine_run(void)
 {
     memset(&s_result, 0, sizeof(s_result));
+    return ESP_OK;
+}
+
+esp_err_t inference_engine_run_features(const float feat[K_AF_LR_N_FEATURES])
+{
+    if (!feat) return ESP_ERR_INVALID_ARG;
+
+    memset(&s_result, 0, sizeof(s_result));
+    float score = af_lr_score(feat);
+    float p_af = af_lr_sigmoid(score);
+
+    s_result.anomaly_flag = (p_af >= k_af_lr_threshold) ? 1 : 0;
+    uint8_t conf = (uint8_t)(p_af * 100.0f);
+    s_result.confidence = conf > 100 ? 100 : conf;
     return ESP_OK;
 }
 

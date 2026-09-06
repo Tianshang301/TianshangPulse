@@ -51,7 +51,7 @@ firmware/main/tflite/inference_engine.cc 加载
 | 分类器 | 逻辑回归（7 参数） |
 | 输入窗口 | **4 秒非重叠窗口** @100Hz（400 点，含 ~3-4 心跳周期） |
 | 验证结果 | 患者隔离 val AUC **0.928** / acc 0.856 / f1 0.781（seed 42） |
-| 固件落地 | 峰值检测 → 特征 → 分类器（INT8 可部署，见 `docs/MEMORY_LAYOUT.md`） |
+| 固件落地 | 峰值检测 → 特征 → 分类器（7 参数 LR 硬编码为 `firmware/main/af_lr_coefs.h`，零运行时依赖） |
 
 > 训练脚本 `scripts/train_af_model.py`，数据准备 `scripts/prepare_af_dataset.py`（均固定 seed 可复现）。
 

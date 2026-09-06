@@ -127,7 +127,27 @@
 - **low_resistance_bike 门控优化**：更灵敏的 SQI 通带或 IMU 运动补偿。
 - **MIMIC-III-Ext-PPG 大规模验证**：凭据就绪后 `--source mimic_iii_ext_ppg` 补 AF 分类外部验证。
 
-## 7. 复现命令
+## 7. 部署形态（方案 A：硬编码系数）
+
+7 参数 LR 直接固化为 C 头文件，零 TFLite/ONNX 运行时依赖：
+
+```
+scripts/export_lr_coefs.py --weights model/af/af_model_lr.npz
+    -> firmware/main/af_lr_coefs.h
+```
+
+- 固件侧：`sensors/af_features.c` 提取 6 维 RRI 特征 → `inference_engine_run_features()`
+  执行 `af_lr_score()` + `af_lr_sigmoid()` → anomaly_flag / confidence
+- **数值一致性已验证**：float 截断系数 vs 训练端完整精度，得分最大偏差 5.6e-07、
+  0.5 阈值分类 100% 一致（WRIST 1,690 窗实测）
+- P4 编译通过（bin 0x6E370 B）
+
+> 为何不用 ONNX：LR 仅 7 个标量系数，一次 6 维内积即可表达；
+> ONNX 是为多算子深度模型（CNN/LSTM）设计计算图格式，引入 ONNX runtime
+> 对嵌入端是纯负收益（解析开销 + 依赖体积）。ONNX 导出仅用于 MLP/CNN-LSTM 存档
+> （`model/af/af_model.onnx`、`af_lstm.onnx`），LR 走硬编码路径。
+
+## 8. 复现命令
 
 ```bash
 pip install -r requirements-validation.txt

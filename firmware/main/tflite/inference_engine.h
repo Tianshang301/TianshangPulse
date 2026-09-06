@@ -16,6 +16,9 @@ typedef struct {
 
 esp_err_t inference_engine_init(void);
 esp_err_t inference_engine_run(void);
+/* 真实推理：给定 6 维 RRI 特征，运行 7 参数 LR 分类器（af_lr_coefs.h）。
+ * 内部计算 AF 概率并写入 s_result（anomaly_flag + confidence）。 */
+esp_err_t inference_engine_run_features(const float feat[6]);
 /* 带门控信息的推理：gated_level 与 motion_energy 由 signal_gate 提供；
  * 高运动/低 SQI 时内部决定是否执行推理并抑制 anomaly_flag。 */
 esp_err_t inference_engine_run_gated(int gated_level);

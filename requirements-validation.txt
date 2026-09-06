@@ -1,0 +1,9 @@
+# TianshangPulse 外部验证流水线依赖（仅验证用，不进入固件）
+# 安装：pip install -r requirements-validation.txt
+wfdb>=4.3.1        # WFDB 格式解析（MIMIC-III-Ext-PPG / WRIST / BIDMC）
+numpy>=1.26
+scipy>=1.13
+pandas>=2.0
+scikit-learn>=1.4
+torch>=2.1
+# biosppy（可选）：ECG R 波对齐参考；当前对齐逻辑用 wfdb 注解，无需安装

@@ -104,6 +104,7 @@ Detailed budget: `docs/POWER_BUDGET.md`
 - `docs/PROTOCOL.md` — BLE GATT protocol (Source of Truth)
 - `docs/HARDWARE.md` — hardware design & pin allocation
 - `docs/MODEL_ARCH.md` — model architecture & quantization pipeline
+- `docs/BENCHMARK.md` — external validation benchmark (beat detection / motion robustness)
 - `docs/MEMORY_LAYOUT.md` — memory layout
 - `docs/POWER_BUDGET.md` — power budget
 - `AGENTS.md` — AI-assisted development guidelines

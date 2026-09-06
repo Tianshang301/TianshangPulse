@@ -103,6 +103,7 @@ idf.py flash monitor
 - `docs/PROTOCOL.md` — BLE GATT 协议（Source of Truth）
 - `docs/HARDWARE.md` — 硬件设计与引脚分配
 - `docs/MODEL_ARCH.md` — 模型架构与量化流水线
+- `docs/BENCHMARK.md` — 外部验证基准（峰值检测 / 运动伪影鲁棒性）
 - `docs/MEMORY_LAYOUT.md` — 内存布局
 - `docs/POWER_BUDGET.md` — 功耗预算
 - `AGENTS.md` — AI 辅助开发行为规范

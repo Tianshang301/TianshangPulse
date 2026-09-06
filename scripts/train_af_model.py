@@ -103,6 +103,11 @@ def main():
     parser.add_argument("--epochs", type=int, default=300)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--out-dir", default=OUT_DIR)
+    parser.add_argument("--extra-npz", action="append", default=None,
+                        help="外部附加数据 npz（如 WRIST 运动窗），全部作为 hard-negative "
+                             "non_af 训练样本参与训练（仅训练，不影响验证集）。可多次指定。")
+    parser.add_argument("--extra-weight", type=float, default=1.0,
+                        help="hard-negative 样本权重，默认 1.0")
     args = parser.parse_args()
 
     os.makedirs(args.out_dir, exist_ok=True)
@@ -114,18 +119,42 @@ def main():
     Xv = extract_features(val["windows"])
     yv = val["labels"].astype(int)
 
+    # 外部 hard-negative 注入
+    aug_meta = {"n_extra_windows": 0}
+    sample_weight = np.ones(len(X))
+    min_weight = 1.0
+    if args.extra_npz:
+        X_extra_list, y_extra_list = [], []
+        for p in args.extra_npz:
+            d = np.load(p, allow_pickle=True)
+            Xe = extract_features(d["windows"])
+            ye = np.zeros(len(Xe), dtype=int)          # 全部视为 non_af（WRIST 全窦性）
+            X_extra_list.append(Xe)
+            y_extra_list.append(ye)
+            aug_meta["n_extra_windows"] += len(Xe)
+            print(f"  [aug] {os.path.basename(p)}: +{len(Xe)} hard-negative windows")
+        X = np.concatenate([X] + X_extra_list, axis=0)
+        y = np.concatenate([y] + y_extra_list, axis=0)
+        n_base = len(sample_weight)
+        sample_weight = np.concatenate([sample_weight,
+                                        np.full(len(X) - n_base, args.extra_weight)])
+        min_weight = min(1.0, args.extra_weight)
+
     assert not np.isnan(X).any() and not np.isnan(Xv).any()
 
     t0 = time.time()
     if args.model == "lr":
         clf = LogisticRegression(max_iter=5000, C=1.0)
-        clf.fit(X, y)
+        clf.fit(X, y, sample_weight=sample_weight)
         prob_tr = clf.predict_proba(X)[:, 1]
         prob_va = clf.predict_proba(Xv)[:, 1]
         model_type = "logistic_regression"
         n_params = clf.coef_.size + clf.intercept_.size
         pred_fn = clf.predict_proba
         best_epoch = "n/a"
+        np.savez(os.path.join(args.out_dir, "af_model_lr.npz"),
+                 coef=clf.coef_[0], intercept=clf.intercept_[0],
+                 features=np.array(FEATURES))
     else:
         model, best_auc, best_ep = train_mlp(X, y, Xv, yv, hidden=args.hidden,
                                              seed=args.seed)
@@ -175,6 +204,7 @@ def main():
         },
         "seed": args.seed,
         "elapsed_sec": round(time.time() - t0, 1),
+        "augmentation": aug_meta,
         "note": "RRI features from beat detection; 4s non-overlap windows @100Hz",
     }
     with open(os.path.join(args.out_dir, "af_model_report.json"), "w", encoding="utf-8") as f:

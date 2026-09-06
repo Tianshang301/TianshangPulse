@@ -55,10 +55,24 @@ firmware/main/tflite/inference_engine.cc 加载
 
 > 训练脚本 `scripts/train_af_model.py`，数据准备 `scripts/prepare_af_dataset.py`（均固定 seed 可复现）。
 
+### 4.2 外部验证与运动门控（2026-09-06 更新）
+
+| 场景 | 指标 | 结论 |
+|---|---|---|
+| 患者隔离验证（MIMIC PERFORM AF） | val AUC 0.928 / 窦性 FPR 0.159 | 病床/安静场景稳定（模型定稿） |
+| **腕部运动（WRIST，8 人，窦性）** | 峰值检测 F1 0.45–0.66；LR AF 误报 0.79–0.93 | **运动伪影破坏 RRI 特征** |
+| **门控改进后（IMU + PPG SQI）** | **运动误报降至 0.037（验收 <0.10）**；安静 AUC 0.928 不受影响 | **达成既定验收标准** |
+
+> **门控方案**：MPU6886 运动能量（0.5Hz 高通方差）双阈值 + 轻量 PPG SQI（幅度 CV/间期合法性/HR 生理窗）。
+> 固件实现：`sensors/signal_gate.c`（`mpu6886` 实读 + 门控分级）、`tflite/inference_engine.cc` 的
+> `inference_engine_run_gated()`、`main.c` 数据通路。阈值标定 `scripts/calibrate_motion_gate.py`。
+> 详见 `docs/BENCHMARK.md`。P2 待办：自适应峰值检测、bike 门控优化、
+> MIMIC-III-Ext-PPG（凭据）大规模外部验证。
+
 ## 5. 模型版本
 
 | 版本 | 结构 | 精度 | 延迟(PC) | 延迟(ESP32-P4) | 备注 |
 |------|------|------|----------|----------------|------|
-| v1.0.0 | 待定 | 待定 | 待定 | 待定 | 首个版本 |
+| v1.0.0 | LR(7) 特征分类 | 患者隔离 AUC 0.928 | 实测待补 | 待补 | 外部验证见 §4.2 |
 
-每次模型更新必须更新 `benchmark.md`。
+> 每次模型更新必须更新 `benchmark.md`。

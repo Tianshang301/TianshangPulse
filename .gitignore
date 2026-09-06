@@ -32,6 +32,7 @@ Thumbs.db
 model/**/*.onnx
 model/**/*.pt
 model/**/*.pth
+model/**/*.npz
 model/**/*.tflite
 model/**/*.h5
 model/**/*.cc

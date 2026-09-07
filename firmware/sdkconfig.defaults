@@ -14,3 +14,6 @@ CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
 
 # I2C bus (shared by MAX30102 + MPU6886)
 CONFIG_SENSOR_I2C_PORT=0
+
+# PPG simulation (off by default; enable on boards without MAX30102)
+CONFIG_SENSOR_SIM_PPG=n

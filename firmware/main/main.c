@@ -3,6 +3,7 @@
 #include "freertos/task.h"
 #include "esp_log.h"
 #include "esp_psram.h"
+#include "esp_timer.h"
 #include "nvs_flash.h"
 #include "config.h"
 #include "sensors/sensor.h"
@@ -10,6 +11,7 @@
 #include "sensors/signal_gate.h"
 #include "sensors/af_features.h"
 #include "ble/gatt_server.h"
+#include "ble/offline_cache.h"
 #include "power/power_manager.h"
 #include "ui/ui_manager.h"
 #include "tflite/inference_engine.h"
@@ -49,6 +51,7 @@ void app_main(void)
     ESP_LOGI(MAIN_TAG, "inference_engine_init -> %s", esp_err_to_name(inf_ret));
 
     ESP_ERROR_CHECK(ble_gatt_server_init());
+    ESP_ERROR_CHECK(offline_cache_init());
     ESP_ERROR_CHECK(ui_init());
 
     xTaskCreate(sensor_task, "sensor", KSensorTaskStackBytes, NULL, 6, NULL);
@@ -66,7 +69,7 @@ static void sensor_task(void *arg)
         sensor_get_ppg(&ppg);
         sensor_get_imu(&imu);
 
-        s_ppg_win[idx] = (float)ppg.heart_rate_bpm;   // 占位：当前驱动无真实波形，后续接 MAX30102 FIFO
+        s_ppg_win[idx] = ppg.raw_ir;   // 原始 IR 波形样本（模拟或真实 MAX30102 FIFO）
 
         /* 按 10Hz 收集 IMU（每 10 次采样@100Hz 一次），4s 共 40 点 */
         if ((idx % 10) == 0) {
@@ -97,12 +100,13 @@ static void inference_task(void *arg)
             float sqi = signal_gate_ppg_sqi(s_ppg_win, WIN_LEN, KSensorSampleRateHz, &n_peaks);
             signal_gate_result_t gate = signal_gate_evaluate(energy, sqi);
 
+            int n_beat = 0;
             if (gate.level == SIGNAL_GATE_ACTIVE ||
                 gate.level == SIGNAL_GATE_LOW_MOTION) {
                 /* 信号可信：提取 6 维 RRI 特征并运行 7 参数 LR */
                 float feat[6];
-                int n_beat = af_features_extract(s_ppg_win, WIN_LEN,
-                                                 KSensorSampleRateHz, feat);
+                n_beat = af_features_extract(s_ppg_win, WIN_LEN,
+                                             KSensorSampleRateHz, feat);
                 if (n_beat >= 3) {
                     inference_engine_run_features(feat);
                 } else {
@@ -116,6 +120,23 @@ static void inference_task(void *arg)
             inference_engine_get_result(&res);
             if (gate.level == SIGNAL_GATE_LOW_MOTION && res.confidence > 60) {
                 res.confidence = 60;   /* 中运动压低置信度上限 */
+            }
+
+            /* 仅在安静(ACTIVE)信号可信时上报 AF 异常：运动/低质量抑制误报 */
+            if (res.anomaly_flag && gate.level == SIGNAL_GATE_ACTIVE) {
+                ble_anomaly_event_t ev = {
+                    .type = BLE_EVENT_AF_ANOMALY,
+                    .timestamp_ms = (uint64_t)(esp_timer_get_time() / 1000),
+                    .confidence = res.confidence,
+                };
+                offline_cache_push(&ev);                 /* 离线兜底（未连接时积累） */
+                ble_notify_anomaly(&ev);                 /* 已连接则实时推送 */
+            }
+
+            /* 周期心率上报：4s 窗内峰数 → BPM（hr_proxy×60），每 4s 一次 */
+            if (n_beat >= 3) {
+                uint16_t bpm = (uint16_t)((float)n_beat / ((float)WIN_LEN / (float)KSensorSampleRateHz) * 60.0f);
+                ble_notify_heart_rate(bpm);
             }
 
             ESP_LOGI(MAIN_TAG, "gate=%d motion=%.4f sqi=%.3f peaks=%d anomaly=%u conf=%u",

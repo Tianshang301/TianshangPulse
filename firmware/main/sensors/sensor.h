@@ -7,6 +7,7 @@
 typedef struct {
     uint16_t heart_rate_bpm;      // 实时心率
     uint8_t  blood_oxygen_pct;    // 实时血氧 %
+    float    raw_ir;              // 当前 IR 原始样本（归一化，供波形/特征提取）
 } sensor_ppg_data_t;
 
 typedef struct {

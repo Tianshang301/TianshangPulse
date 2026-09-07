@@ -5,4 +5,21 @@ config SENSOR_I2C_PORT
     range 0 1
     default 0
 
+config SENSOR_SIM_PPG
+    bool "Simulate PPG waveform (no MAX30102 hardware needed)"
+    default n
+    help
+        Inject a synthetic PPG waveform into sensor_ppg_data_t.raw_ir to
+        validate the full inference chain (window -> features -> LR -> BLE)
+        on boards without the MAX30102. Requires CONFIG_SENSOR_I2C_PORT init
+        still run, but FIFO access is skipped.
+
+config SENSOR_SIM_PPG_AF
+    bool "Simulate AF (irregular RR) instead of sinus rhythm"
+    default n
+    depends on SENSOR_SIM_PPG
+    help
+        When enabled, the simulated beats have irregular RR intervals to
+        exercise the AF detection path (high rri_std / pnn50).
+
 endmenu

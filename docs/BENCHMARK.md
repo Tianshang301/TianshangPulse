@@ -160,7 +160,7 @@ python scripts/evaluate_motion_robustness.py --npz data/processed/wrist/external
 python scripts/evaluate_af_model.py --model lr    # 安静基线回归
 ```
 
-## 8. 参考文献
+## 9. 参考文献
 
 - Jarchi D, Casson AJ. *Description of a Database Containing Wrist PPG Signals Recorded
   during Physical Exercise with Both Accelerometer and Gyroscope Measures of Motion.*

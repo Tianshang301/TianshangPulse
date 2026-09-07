@@ -37,6 +37,11 @@ model/**/*.tflite
 model/**/*.h5
 model/**/*.cc
 model/**/*.json
+# 例外（allowlist）：以下为【已部署/复现必需】产物，强制入仓（git add -f）：
+#   model/af/af_model_lr.npz          已部署 LR 权重（固件 af_lr_coefs.h 之源）
+#   model/af/af_model_lr_base.npz     基线 LR（复现对照）
+#   model/af/af_model_lr_enhanced.npz 硬负样本增强 LR（研究存档）
+#   model/af/motion_gate.json         运动门控阈值（固件 signal_gate 之源）
 
 # Calibration data
 data/*.npz

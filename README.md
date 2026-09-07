@@ -6,7 +6,7 @@
 
 ## Highlights
 
-- **On-device AI**: 750K-parameter INT8 LSTM inference, latency <10ms, zero cloud dependency
+- **On-device AI**: 7-parameter logistic regression on RR-interval features (val AUC 0.928) with IMU + PPG motion gating, zero cloud dependency
 - **Sensors**: MAX30102 (PPG heart rate / SpO2) + MPU6886 (accelerometer / gyroscope)
 - **Connectivity**: BLE GATT Server — real-time heart rate / SpO2 / anomaly notifications, offline event caching with batch upload
 - **UI**: LVGL with customizable theme
@@ -17,7 +17,7 @@
 |----------|------------|
 | Platform | ESP32-P4 (400MHz dual-core RISC-V, 16MB PSRAM) |
 | Framework | ESP-IDF v5.4+ (C/C++) + FreeRTOS |
-| Inference | TensorFlow Lite Micro (`esp-tflite-micro`) |
+| Inference | Logistic regression (7 params, hardcoded) + motion gating; TensorFlow Lite Micro reserved for future deep models |
 | UI | LVGL v9 |
 | BLE | NimBLE GATT Server |
 

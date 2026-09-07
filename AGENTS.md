@@ -10,8 +10,8 @@
 
 TianshangPulse 是一款基于 **ESP32-P4** (400MHz 双核 RISC-V) 的端侧 AI 智能手表固件，与 [TianshangHealth](https://github.com/Tianshang301/TianshangHealth) Android APP 构成完全离线的健康监测生态。
 
-- **核心能力**：750K 参数 INT8 LSTM 实时推理，延迟 <10ms，零云端依赖
-- **技术栈**：ESP-IDF (C/C++) + FreeRTOS + TensorFlow Lite Micro + LVGL
+- **核心能力**：7 参数逻辑回归（RR 间期特征）+ 运动门控的完全离线 AF 检测，val AUC 0.928
+- **技术栈**：ESP-IDF (C/C++) + FreeRTOS + LVGL（逻辑回归硬编码部署；TFLite Micro 为深度模型预留）
 - **硬件**：ESP32-P4 (16MB PSRAM) + MAX30102 (PPG) + MPU6886 (加速度)
 - **通信**：BLE GATT Server，与 TianshangHealth APP 双向同步
 
@@ -227,7 +227,7 @@ idf.py build
 idf.py flash monitor
 
 # 仅构建模型数据
-python scripts/convert_model.py --input model/tianshang_lstm.onnx --verify
+python scripts/export_lr_coefs.py --weights model/af/af_model_lr.npz
 ```
 
 ### 6.2 内存诊断命令

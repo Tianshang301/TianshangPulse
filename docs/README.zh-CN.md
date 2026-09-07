@@ -6,7 +6,7 @@
 
 ## 核心能力
 
-- **端侧 AI**：750K 参数 INT8 LSTM 实时推理，延迟 <10ms，零云端依赖
+- **端侧 AI**：7 参数逻辑回归（RR 间期特征，val AUC 0.928）+ 运动门控，零云端依赖
 - **传感器**：MAX30102（PPG 心率/血氧）+ MPU6886（加速度/陀螺仪）
 - **通信**：BLE GATT Server —— 实时心率/血氧/异常事件通知，离线事件缓存与批量上报
 - **界面**：LVGL，可定制主题
@@ -17,7 +17,7 @@
 |------|------|
 | 平台 | ESP32-P4 (400MHz 双核 RISC-V, 16MB PSRAM) |
 | 框架 | ESP-IDF v5.4+ (C/C++) + FreeRTOS |
-| 推理 | TensorFlow Lite Micro (`esp-tflite-micro`) |
+| 推理 | 逻辑回归（7 参数，硬编码）+ 运动门控；TensorFlow Lite Micro 为深度模型预留 |
 | 界面 | LVGL v9 |
 | 通信 | NimBLE GATT Server |
 

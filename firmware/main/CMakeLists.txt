@@ -2,6 +2,7 @@ idf_component_register(
     SRCS
         "main.c"
         "sensors/sensor.c"
+        "sensors/sensor_i2c.c"
         "sensors/max30102.c"
         "sensors/mpu6886.c"
         "sensors/signal_gate.c"

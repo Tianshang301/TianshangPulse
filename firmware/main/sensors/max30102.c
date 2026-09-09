@@ -3,13 +3,12 @@
 #include <string.h>
 
 #include "sensors/max30102.h"
+#include "sensors/sensor_i2c.h"
 #include "esp_log.h"
 #include "driver/i2c_master.h"
-#include "config.h"
 
 #define TAG "max30102"
 
-static i2c_master_bus_handle_t s_bus = NULL;
 static i2c_master_dev_handle_t s_dev = NULL;
 static float s_last_ir = 0.0f;      // FIFO 空时保持上一帧
 
@@ -85,26 +84,7 @@ esp_err_t max30102_init(void)
 #endif
     return ESP_OK;
 #else
-    i2c_master_bus_config_t bus_cfg = {
-        .i2c_port = KSensorPortI2c,
-        .sda_io_num = KSensorSdaGpio,
-        .scl_io_num = KSensorSclGpio,
-        .clk_source = I2C_CLK_SRC_DEFAULT,
-        .glitch_ignore_cnt = 7,
-        .flags.enable_internal_pullup = true,
-    };
-    esp_err_t ret = i2c_new_master_bus(&bus_cfg, &s_bus);
-    if (ret != ESP_OK) {
-        ESP_LOGE(TAG, "bus create failed: %s", esp_err_to_name(ret));
-        return ret;
-    }
-
-    i2c_device_config_t dev_cfg = {
-        .dev_addr_length = I2C_ADDR_BIT_LEN_7,
-        .device_address = MAX30102_I2C_ADDR,
-        .scl_speed_hz = KSensorI2cFreqHz,
-    };
-    ret = i2c_master_bus_add_device(s_bus, &dev_cfg, &s_dev);
+    esp_err_t ret = sensor_i2c_add_device(MAX30102_I2C_ADDR, &s_dev);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "dev add failed: %s", esp_err_to_name(ret));
         return ret;
@@ -157,10 +137,6 @@ esp_err_t max30102_read_ppg(sensor_ppg_data_t *out)
 
 esp_err_t max30102_deinit(void)
 {
-    if (s_bus) {
-        i2c_del_master_bus(s_bus);
-        s_bus = NULL;
-        s_dev = NULL;
-    }
+    s_dev = NULL;   // 共享总线由 sensor_i2c_deinit() 统一销毁
     return ESP_OK;
 }

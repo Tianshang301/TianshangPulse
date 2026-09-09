@@ -1,6 +1,7 @@
 #include <string.h>
 #include "esp_log.h"
 #include "sensors/sensor.h"
+#include "sensors/sensor_i2c.h"
 #include "sensors/max30102.h"
 #include "sensors/mpu6886.h"
 
@@ -11,7 +12,11 @@ static sensor_imu_data_t s_imu = {0};
 
 esp_err_t sensor_init(void)
 {
-    esp_err_t ret = max30102_init();
+    esp_err_t ret = sensor_i2c_init();   // 共享 I2C 总线（MAX30102 + MPU6886 挂载）
+    if (ret != ESP_OK) {
+        ESP_LOGW(SENSOR_TAG, "I2C bus init failed: %s", esp_err_to_name(ret));
+    }
+    ret = max30102_init();
     if (ret != ESP_OK) {
         ESP_LOGW(SENSOR_TAG, "MAX30102 init failed: %s", esp_err_to_name(ret));
     }
@@ -47,5 +52,6 @@ esp_err_t sensor_deinit(void)
 {
     mpu6886_deinit();
     max30102_deinit();
+    sensor_i2c_deinit();
     return ESP_OK;
 }

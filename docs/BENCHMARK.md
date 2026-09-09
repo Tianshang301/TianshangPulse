@@ -110,7 +110,7 @@
 
 | 模块 | 文件 | 内容 |
 |---|---|---|
-| IMU 实读 | `sensors/mpu6886.c` | 真实 I2C 读取加速度（+8g 量程）；含 `mpu6886_accel_g()` |
+| IMU 实读 | `sensors/mpu6886.c` | 真实 I2C 读取加速度（+8g 量程）+ 陀螺仪（+2000dps 量程）；含 `mpu6886_accel_g()` / `mpu6886_gyro_dps()` |
 | 门控算法 | `sensors/signal_gate.c/.h` | 运动能量（0.5Hz 高通方差）+ PPG SQI（幅度 CV/间期合法性/HR 窗）+ 四档分级 |
 | 引擎接入 | `tflite/inference_engine.cc` | `inference_engine_run_gated()`：高运动/低 SQI 抑制 AF，中运动压置信度 |
 | 数据通路 | `main.c` | sensor 任务 100Hz 采样、4s 窗缓冲 + 10Hz IMU 收集；推理前计算门控 |

@@ -1,6 +1,7 @@
 #include <string.h>
 #include "ble/gatt_server.h"
 #include "ble/offline_cache.h"
+#include "power/power_manager.h"
 #include "esp_log.h"
 #include "nimble/nimble_port.h"
 #include "host/ble_hs.h"
@@ -148,6 +149,7 @@ static int on_gap_event(struct ble_gap_event *event, void *arg)
     case BLE_GAP_EVENT_CONNECT:
         if (event->connect.status == 0) {
             s_conn_handle = event->connect.conn_handle;
+            power_set_mode(POWER_MODE_ACTIVE);   /* 连接即全速 */
             ESP_LOGI(TAG, "connected, handle=%u", (unsigned)s_conn_handle);
         } else {
             start_advertising();
@@ -156,6 +158,7 @@ static int on_gap_event(struct ble_gap_event *event, void *arg)
     case BLE_GAP_EVENT_DISCONNECT:
         ESP_LOGI(TAG, "disconnected");
         s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
+        power_set_mode(POWER_MODE_LIGHT_SLEEP);   /* 断开即降频浅睡 */
         start_advertising();
         break;
     case BLE_GAP_EVENT_ADV_COMPLETE:

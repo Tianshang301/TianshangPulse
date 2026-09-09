@@ -9,6 +9,7 @@
 #define KInferenceIntervalMs    40                      // 25Hz 推理频率
 #define KSensorSampleRateHz     100                     // PPG 采样率
 #define KPredictionHrIntervalMs 1000                    // 本地预测(HR)周期
+#define KPowerStandbyWakeSec    600                     // 待机深度睡眠唤醒周期（10 分钟）
 #define KSensorPortI2c          CONFIG_SENSOR_I2C_PORT
 #define KSensorI2cFreqHz        400000                  // 400kHz Fast Mode
 #define KSensorSdaGpio          KPlatformI2cSda

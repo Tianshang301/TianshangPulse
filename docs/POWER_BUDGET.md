@@ -36,7 +36,7 @@
 ## 3. 低功耗策略（checklist）
 
 - [ ] P4：LP 核（40MHz）负责看门狗和简单中断唤醒
-- [ ] HP 核（最大频率）仅在推理时全速运行，其余时间降频；S3 由 `esp_pm` 自动调频
+- [x] HP 核（最大频率）仅在连接/推理时全速运行，断开后降频+浅睡；S3 由 `esp_pm` 自动调频
 - [ ] PSRAM 在空闲时进入半休眠模式
 - [ ] 传感器使用单次采样模式（One-shot），禁止连续高功耗模式
 - [ ] 推理频率 25Hz，每次 <10ms，占空比 ~25%
@@ -44,6 +44,18 @@
       腕部运动时纯特征分类器 AF 误报 0.79–0.93（vs 安静 0.16），实测门控后降至 0.037。
       已实现：`mpu6886` 实读 + `signal_gate.c` 运动能量（0.5Hz 高通方差）+ PPG SQI 分级。
       成本：每窗 1 次标量能量计算 + SQI（~400 次峰判定），<0.1ms，可忽略
+
+## 3.1 电源模式状态机（`power/power_manager.c`）
+
+| 模式 | 锁状态 | CPU | Light Sleep | 触发 |
+|------|--------|-----|-------------|------|
+| **ACTIVE** | 持有 `CPU_FREQ_MAX` | 全速 | 禁止 | BLE 连接 / 启动默认 |
+| **LIGHT_SLEEP** | 释放锁 | auto-DFS | 允许（间隙） | BLE 断开 |
+| **STANDBY** | — | 深度睡眠 | 唤醒即复位 | API 调用（定时器 `KPowerStandbyWakeSec`=600s） |
+
+转换链：`ACTIVE ⇄ LIGHT_SLEEP`（BLE 连接/断开驱动）；`→ STANDBY`（待调用 API）。
+`esp_pm_configure()` 启用 auto-DFS + light sleep；`esp_pm_lock` 控制全局粒度。
+auto-DFS 在 `vTaskDelay` 间隙自动降频，无需推理级细粒度锁（LR 7 参数 <1ms）。
 
 ## 4. 详细测量
 

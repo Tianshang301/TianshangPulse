@@ -1,4 +1,4 @@
-# ESP32-S3 specific sdkconfig (N8R8: 8MB flash + 8MB octal PSRAM)
+# ESP32-S3 specific sdkconfig (N16R8: 16MB flash + 8MB octal PSRAM)
 # Target set via: idf.py set-target esp32s3
 
 # PSRAM: 8MB octal (OPI) PSRAM, required for TFLite Micro arena
@@ -8,9 +8,9 @@ CONFIG_SPIRAM_SPEED_80M=y
 CONFIG_SPIRAM_USE_CAPS_ALLOC=y
 CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=n
 
-# Flash: 8MB
-CONFIG_ESPTOOLPY_FLASHSIZE_8MB=y
+# Flash: 16MB (N16R8)
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
 
-# Custom partition table sized for 8MB flash (see partitions_8mb.csv)
+# Custom partition table sized for 16MB flash (see partitions_16mb.csv)
 CONFIG_PARTITION_TABLE_CUSTOM=y
-CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_8mb.csv"
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_16mb.csv"

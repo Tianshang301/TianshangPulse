@@ -5,7 +5,7 @@
 | 平台 | 内部 SRAM | PSRAM |
 |------|-----------|-------|
 | ESP32-P4 | 768KB | 16MB |
-| ESP32-S3 (N8R8) | 512KB（含 256KB 瓷片内部） | 8MB |
+| ESP32-S3 (N16R8) | 512KB（含 256KB 瓷片内部） | 8MB |
 
 > 目标相关常量统一在 `firmware/main/platform/platform_<target>.h` 中声明，编译期由 `CONFIG_IDF_TARGET` 决定。
 
@@ -17,8 +17,22 @@
 | PPG 环形缓冲 | SRAM | 50KB（`KSensorBufferSize`） | 采样热路径 |
 | 离线事件缓存 | PSRAM | 100 条 | 循环缓冲区 |
 | 模型权重 | PSRAM | 待定 | 由 arena 承载 |
+| LVGL 绘制缓冲 | PSRAM | 150KB（240×320×2B） | esp_lvgl_port `buff_spiram`；小 SRAM 块流式搬运到 SPI DMA |
 
-## 3. 分配规则
+## 3. Flash 分区（S3，仅前缀一致、storage 大小不同）
+
+| 分区 | 偏移 | 大小 | 说明 |
+|------|------|------|------|
+| nvs | 0x9000 | 24KB | NVS |
+| phy_init | 0xf000 | 4KB | PHY 校准数据 |
+| factory | 0x10000 | 3MB | 应用 |
+| model | 0x310000 | 1MB | 模型/资产（spiffs） |
+| storage | 0x410000 | 其余全部 | 离线数据（spiffs） |
+
+- 8MB Flash（N8R8）：`partitions_8mb.csv`，storage = 0x3F0000（~3.9MB）
+- 16MB Flash（N16R8，**当前 S3 目标**）：`partitions_16mb.csv`，storage = 0xBF0000（~12MB）
+
+## 4. 分配规则
 
 - **禁止**在 ISR 中调用 `malloc`/`free`
 - TFLite arena 必须通过 `heap_caps_malloc(MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT)` 分配
@@ -26,7 +40,7 @@
 - 大块数据（模型、缓存）一律放 PSRAM
 - S3 通过 `CONFIG_SPIRAM_USE_CAPS_ALLOC=y` 确保显式 `MALLOC_CAP_SPIRAM` 才用 PSRAM，普通 `malloc` 不占用
 
-## 4. FreeRTOS 任务栈
+## 5. FreeRTOS 任务栈
 
 | 任务 | P4 | S3 | 优先级 |
 |------|----|----|--------|

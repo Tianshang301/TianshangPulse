@@ -9,7 +9,7 @@
 
 #define KPlatformSramBytes         (512 * 1024)
 #define KPlatformPsramBytes        (8 * 1024 * 1024)
-#define KPlatformFlashSize         (8 * 1024 * 1024)
+#define KPlatformFlashSize         (16 * 1024 * 1024)
 
 #define KPlatformArenaSize         (1024 * 1024)
 

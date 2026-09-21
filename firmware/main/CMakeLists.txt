@@ -6,10 +6,12 @@ idf_component_register(
         "sensors/max30102.c"
         "sensors/mpu6886.c"
         "sensors/signal_gate.c"
+        "sensors/ppg_preprocess.c"
         "sensors/af_features.c"
         "ble/gatt_server.c"
         "ble/offline_cache.c"
         "ui/ui_manager.c"
+        "ui/display_driver.c"
         "power/power_manager.c"
         "tflite/inference_engine.cc"
     INCLUDE_DIRS
@@ -29,6 +31,9 @@ idf_component_register(
         bt
         log
         lvgl
+        esp_lcd
+        espressif__esp_lvgl_port
+        espressif__esp_lcd_ili9341
         espressif__esp-tflite-micro
 )
 

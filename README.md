@@ -36,9 +36,10 @@ firmware/                     # ESP-IDF project
 │   └── power/                # Power management (active / light-sleep / standby)
 ├── sdkconfig.defaults        # Common config (FreeRTOS / BLE / I2C port)
 ├── sdkconfig.defaults.esp32p4   # P4: PSRAM 120M, 16MB flash
-├── sdkconfig.defaults.esp32s3   # S3: OPI PSRAM 80M, 8MB flash, custom partition
-├── partitions_8mb.csv        # Custom 8MB partition table (esp32s3)
-└── main/idf_component.yml    # Component dependencies (lvgl, esp-tflite-micro)
+├── sdkconfig.defaults.esp32s3   # S3: OPI PSRAM 80M, 16MB flash, custom partition
+├── partitions_8mb.csv        # Custom 8MB partition table (esp32s3, legacy N8R8)
+├── partitions_16mb.csv       # Custom 16MB partition table (esp32s3, N16R8)
+└── main/idf_component.yml    # Component dependencies (lvgl, esp-tflite-micro, esp_lvgl_port, esp_lcd_ili9341)
 ```
 
 Other directories: `docs/` (protocol / hardware / power / model / memory layout), `scripts/` (model conversion & verification), `model/`, `data/`, `hardware/`
@@ -50,7 +51,7 @@ Other directories: `docs/` (protocol / hardware / power / model / memory layout)
 - [ESP-IDF v5.4](https://docs.espressif.com/projects/esp-idf/en/latest/get-started/)
 - Target chip — one of:
   - **ESP32-P4** (16MB flash + 16MB PSRAM)
-  - **ESP32-S3 N8R8** (8MB flash + 8MB octal PSRAM) — recommended starting point
+  - **ESP32-S3 N16R8** (16MB flash + 8MB octal PSRAM) — recommended starting point
 
 ### First build
 
@@ -69,7 +70,7 @@ idf.py set-target esp32s3
 idf.py build
 ```
 
-On the first build, the ESP Component Manager automatically fetches the `lvgl` and `esp-tflite-micro` components.
+On the first build, the ESP Component Manager automatically fetches the `lvgl`, `esp-tflite-micro`, `esp_lvgl_port` and `esp_lcd_ili9341` components.
 
 The SDK picks the matching `sdkconfig.defaults.<TARGET>` automatically. Target-specific constants live in `firmware/main/platform/`.
 

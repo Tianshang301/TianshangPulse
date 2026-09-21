@@ -23,3 +23,65 @@ config SENSOR_SIM_PPG_AF
         exercise the AF detection path (high rri_std / pnn50).
 
 endmenu
+
+menu "TianshangPulse Display Configuration"
+
+config DISPLAY_ENABLE
+    bool "Enable ILI9341 SPI display + LVGL UI (ESP32-S3 panel)"
+    default y if IDF_TARGET_ESP32S3
+    default n
+    help
+        Drive the 2.8-inch ILI9341 SPI panel (240x320) through esp_lcd and
+        esp_lvgl_port. When disabled, ui_init() keeps the log-only skeleton
+        behaviour so the firmware still runs on boards without the panel.
+
+config DISPLAY_SPI_SCK_GPIO
+    int "ILI9341 SPI clock (SCK) GPIO"
+    range 0 48
+    default 12 if IDF_TARGET_ESP32S3
+    default 0
+    help
+        S3 defaults avoid: 35/36/37 (OPI PSRAM), 26-32 (flash), 0/3/45/46
+        (strapping), 8/18 (I2C sensors), 19/20 (USB OTG), 43/44 (UART0).
+
+config DISPLAY_SPI_MOSI_GPIO
+    int "ILI9341 SPI data (MOSI/SDA) GPIO"
+    range 0 48
+    default 11 if IDF_TARGET_ESP32S3
+    default 0
+
+config DISPLAY_SPI_CS_GPIO
+    int "ILI9341 chip select (CS) GPIO"
+    range 0 48
+    default 10 if IDF_TARGET_ESP32S3
+    default 0
+
+config DISPLAY_DC_GPIO
+    int "ILI9341 data/command (DC/RS) GPIO"
+    range 0 48
+    default 9 if IDF_TARGET_ESP32S3
+    default 0
+
+config DISPLAY_RST_GPIO
+    int "ILI9341 reset (RST) GPIO (-1 for none)"
+    range -1 48
+    default 14 if IDF_TARGET_ESP32S3
+    default -1
+
+config DISPLAY_BL_GPIO
+    int "ILI9341 backlight (BL/LED) GPIO (-1 for none)"
+    range -1 48
+    default 21 if IDF_TARGET_ESP32S3
+    default -1
+    help
+        Driven high at init (active-high on common ILI9341 breakout boards).
+        PWM dimming is a later iteration; see docs/POWER_BUDGET.md.
+
+config DISPLAY_SPI_CLOCK_HZ
+    int "ILI9341 SPI clock frequency (Hz)"
+    default 40000000
+    help
+        40MHz is the conservative value for breadboard bring-up. If the
+        display shows artifacts on the real hardware, lower to 26MHz.
+
+endmenu

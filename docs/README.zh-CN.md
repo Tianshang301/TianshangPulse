@@ -36,9 +36,11 @@ firmware/                     # ESP-IDF 项目
 │   └── power/                # 功耗管理（active / light-sleep / standby）
 ├── sdkconfig.defaults          # 通用配置（FreeRTOS / BLE / I2C 端口）
 ├── sdkconfig.defaults.esp32p4  # P4：PSRAM 120M、16MB Flash
-├── sdkconfig.defaults.esp32s3  # S3：OPI PSRAM 80M、8MB Flash、自定义分区表
-├── partitions_8mb.csv          # 自定义 8MB 分区表（esp32s3）
-└── main/idf_component.yml      # 组件依赖（lvgl, esp-tflite-micro）
+├── sdkconfig.defaults.esp32s3  # S3：OPI PSRAM 80M、16MB Flash、自定义分区表
+├── partitions_8mb.csv          # 自定义 8MB 分区表（esp32s3，旧 N8R8）
+├── partitions_16mb.csv          # 自定义 16MB 分区表（esp32s3，N16R8）
+
+└── main/idf_component.yml      # 组件依赖（lvgl, esp-tflite-micro, esp_lvgl_port, esp_lcd_ili9341）
 ```
 
 其他目录：`docs/`（协议 / 硬件 / 功耗 / 模型 / 内存布局）、`scripts/`（模型转换与验证）、`model/`、`data/`、`hardware/`
@@ -50,7 +52,7 @@ firmware/                     # ESP-IDF 项目
 - [ESP-IDF v5.4](https://docs.espressif.com/projects/esp-idf/en/latest/get-started/)
 - 目标芯片（二选一）：
   - **ESP32-P4**（16MB Flash + 16MB PSRAM）
-  - **ESP32-S3 N8R8**（8MB Flash + 8MB OPI PSRAM）——推荐先从此芯片开始
+  - **ESP32-S3 N16R8**（16MB Flash + 8MB OPI PSRAM）——推荐先从此芯片开始
 
 ### 首次构建
 
@@ -69,7 +71,7 @@ idf.py set-target esp32s3
 idf.py build
 ```
 
-首次构建时 ESP Component Manager 会自动拉取 `lvgl` 与 `esp-tflite-micro` 组件。
+首次构建时 ESP Component Manager 会自动拉取 `lvgl`、`esp-tflite-micro`、`esp_lvgl_port` 与 `esp_lcd_ili9341` 组件。
 
 SDK 会自动加载对应的 `sdkconfig.defaults.<目标芯片>`。目标相关常量统一放在 `firmware/main/platform/`。
 

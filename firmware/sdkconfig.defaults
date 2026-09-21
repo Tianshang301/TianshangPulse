@@ -17,3 +17,7 @@ CONFIG_SENSOR_I2C_PORT=0
 
 # PPG simulation (off by default; enable on boards without MAX30102)
 CONFIG_SENSOR_SIM_PPG=n
+
+# LVGL UI (status screen uses the 24px font for HR digits)
+CONFIG_LV_FONT_MONTSERRAT_14=y
+CONFIG_LV_FONT_MONTSERRAT_24=y

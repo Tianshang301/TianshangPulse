@@ -28,6 +28,19 @@ Thumbs.db
 # Logs
 *.log
 
+# Secrets / API keys (never commit; use env vars or a local untracked file)
+.env
+.env.*
+*.env
+*.pem
+*.key
+id_rsa*
+*.p12
+*.pfx
+credentials*.json
+secrets*.json
+*.keystore
+
 # Model artifacts (keep source only, ignore binaries)
 model/**/*.onnx
 model/**/*.pt

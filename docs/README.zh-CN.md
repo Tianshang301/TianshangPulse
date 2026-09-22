@@ -45,6 +45,8 @@ firmware/                     # ESP-IDF 项目
 
 其他目录：`docs/`（协议 / 硬件 / 功耗 / 模型 / 内存布局）、`scripts/`（模型转换与验证）、`model/`、`data/`、`hardware/`
 
+硬件到货前准备的交接状态（16MB Flash + ILI9341 显示驱动，仅完成主机侧/编译验证）：[`docs/SYNC_HARDWARE_PREP.md`](./SYNC_HARDWARE_PREP.md)
+
 ## 构建
 
 ### 前置条件

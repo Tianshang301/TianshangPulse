@@ -44,6 +44,8 @@ firmware/                     # ESP-IDF project
 
 Other directories: `docs/` (protocol / hardware / power / model / memory layout), `scripts/` (model conversion & verification), `model/`, `data/`, `hardware/`
 
+Hardware-prep handoff state (16MB flash + ILI9341 display driver, verified on host/compile only): [`docs/SYNC_HARDWARE_PREP.md`](docs/SYNC_HARDWARE_PREP.md)
+
 ## Build
 
 ### Prerequisites

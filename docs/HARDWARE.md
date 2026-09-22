@@ -6,7 +6,7 @@
 
 | 平台 | SoC | Flash | PSRAM | 架构 | 优先级 |
 |------|-----|-------|-------|------|--------|
-| **ESP32-S3** | ESP32-S3-WROOM-1-N8R8 | 8MB | 8MB OPI | Xtensa LX7 双核 240MHz | **首选**（低成本快速验证） |
+| **ESP32-S3** | ESP32-S3-WROOM-1-N16R8 | 16MB | 8MB OPI | Xtensa LX7 双核 240MHz | **首选**（低成本快速验证） |
 | **ESP32-P4** | ESP32-P4NRW16 / NRW32 | 16MB | 16MB | RISC-V 双核 400MHz | 后续迁移 |
 
 > 固件支持双目标，通过 `idf.py set-target esp32s3|esp32p4` 切换；目标相关配置见 `firmware/main/platform/`。
@@ -16,7 +16,7 @@
 | 器件 | 型号 | 说明 |
 |------|------|------|
 | PPG | MAX30102 | I2C，心率/血氧 |
-| IMU | MPU6886 | I2C，加速度（±8g）+ 陀螺仪（±2000dps） |
+| IMU | MPU6500（MPU6886 兼容替代） | I2C，加速度（±8g）+ 陀螺仪（±2000dps）；地址同 `0x68`，驱动无 WHO_AM_I 校验故可直接替换 |
 | 屏幕 | ILI9341（2.8" TFT 240×320，SPI） | 开发板级模块（网购现货），带触摸但触摸引脚未启用 |
 
 ## 3. 接口分配
@@ -24,7 +24,7 @@
 | 外设 | 接口 | GPIO | 说明 |
 |------|------|------|------|
 | MAX30102 | I2C0 | SDA=18, SCL=8 | 两平台一致（`KPlatformI2cSda/Scl`） |
-| MPU6886 | I2C0 | 与 MAX30102 共享总线 | |
+| MPU6500 / MPU6886 | I2C0 | 与 MAX30102 共享总线，地址 `0x68` | ⏳ MPU6500 未经实机验证 |
 | 屏幕 | SPI2 | SCK=12, MOSI=11, CS=10, DC=9, RST=14, BL=21 | S3 默认值（menuconfig "TianshangPulse Display Configuration" 可改）；触摸 5 线悬空 |
 | 电池管理 | — | 待定 | |
 

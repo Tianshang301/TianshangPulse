@@ -18,17 +18,18 @@
 | PSRAM | 半休眠 | 空闲时降功耗 |
 | MAX30102（单次采样） | ~0.7mA | One-shot 模式 |
 | MPU6886 | ~1mA | 加速度+陀螺仪（±8g/±2000dps） |
-| 屏幕 | 待定 | 待选型 |
+| 屏幕 | 未实测 | ILI9341 2.8" SPI + 背光常开（⏳ 待上板实测） |
 | BLE 广播/连接 | ~10mA 峰值 | 周期性广播 |
 
-### ESP32-S3（Xtensa，N8R8）
+### ESP32-S3（Xtensa，N16R8）
 
 | 模块 | 工作电流 | 说明 |
 |------|----------|------|
 | 双核（240MHz 推理） | ~40mA | `esp_pm_configure` 上限 `KPlatformCpuMaxMhz=240` |
 | 空闲降频 | ~80MHz | `KPlatformCpuMinMhz=80`（S3 无独立 LP 核） |
 | PSRAM | 半休眠 | 空闲时降功耗 |
-| MAX30102 / MPU6886 | 同 P4 | 相同传感器方案 |
+| MAX30102 / MPU6500 | 同 P4 | 相同传感器方案（MPU6500 替代 MPU6886） |
+| 屏幕 | 未实测 | ILI9341 2.8" SPI + 背光常开（⏳ 待上板实测） |
 | BLE 广播/连接 | ~10mA 峰值 | 周期性广播 |
 
 > CPU 频率由 `power/power_manager.c` 读取 `KPlatformCpuMaxMhz` / `KPlatformCpuMinMhz`（platform 头文件）参数化配置。

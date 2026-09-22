@@ -225,6 +225,7 @@ MIPI-DSI 屏改由独立接口 `lvgl_port_add_disp_dsi()` 承担。已按本地�
 | `docs/HARDWARE.md` 平台表仍写 "WROOM-1-N8R8 / 8MB"（与已切换的 N16R8 矛盾） | ✅ 已改为 N16R8 / 16MB |
 | `docs/HARDWARE.md` IMU 行未标注 MPU6500 替代 | ✅ 已补注（同地址 0x68、驱动无 WHO_AM_I 校验） |
 | `docs/POWER_BUDGET.md` 屏幕功耗行缺失（P4 表写"待选型"、S3 表无该行） | ✅ 已补 ILI9341 行并标"未实测" |
+| `docs/POWER_BUDGET.md` P4 表 IMU 行仍写 MPU6886、低功耗 checklist 缺屏幕背光项 | ✅ 已改为 MPU6500 / MPU6886；已补背光 PWM 待办项 |
 
 ### 10.2 待办（不阻塞，按优先级）
 

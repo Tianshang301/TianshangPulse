@@ -41,8 +41,9 @@ config DISPLAY_SPI_SCK_GPIO
     default 12 if IDF_TARGET_ESP32S3
     default 0
     help
-        S3 defaults avoid: 35/36/37 (OPI PSRAM), 26-32 (flash), 0/3/45/46
-        (strapping), 8/18 (I2C sensors), 19/20 (USB OTG), 43/44 (UART0).
+        S3 defaults avoid: 26-37 (flash SPI0/1 + OPI PSRAM data lines),
+        0/3/45/46 (strapping), 8/18 (I2C sensors), 19/20 (USB OTG),
+        43/44 (UART0).
 
 config DISPLAY_SPI_MOSI_GPIO
     int "ILI9341 SPI data (MOSI/SDA) GPIO"

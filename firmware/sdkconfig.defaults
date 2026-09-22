@@ -21,3 +21,9 @@ CONFIG_SENSOR_SIM_PPG=n
 # LVGL UI (status screen uses the 24px font for HR digits)
 CONFIG_LV_FONT_MONTSERRAT_14=y
 CONFIG_LV_FONT_MONTSERRAT_24=y
+
+# Main task stack: app_main now runs the whole display bring-up synchronously
+# (SPI bus + esp_lcd panel + esp_lvgl_port + LVGL object/theme creation), which
+# is stack-hungry. 3584 (IDF default) is too tight for that; 8192 leaves margin.
+# Verify on hardware via uxTaskGetStackHighWaterMark(NULL) logged after ui_init().
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192

@@ -83,13 +83,14 @@ SDK 会自动加载对应的 `sdkconfig.defaults.<目标芯片>`。目标相关�
 idf.py flash monitor
 ```
 
-> 注意：`esp32s3` 使用自定义 8MB 分区表（`partitions_8mb.csv`）。
+> 注意：`esp32s3`（N16R8）使用自定义 16MB 分区表（`partitions_16mb.csv`）。
+> 旧的 `partitions_8mb.csv` 保留给 N8R8 板。
 > 切换目标时，如遇到 target 不匹配错误，先 `idf.py fullclean` 并删除 `sdkconfig`。
 
 ## 内存策略
 
-- 内部 SRAM (768KB)：热路径数据、PPG 缓冲、任务栈
-- PSRAM (16MB)：TFLite arena（1MB）、模型权重、离线事件缓存
+- 内部 SRAM：热路径数据、PPG 缓冲、任务栈（P4 768KB / S3 512KB）
+- PSRAM：TFLite arena（1MB）、模型权重、离线事件缓存、LVGL 绘制缓冲（P4 16MB / S3 8MB）
 - 详细布局：`docs/MEMORY_LAYOUT.md`
 
 ## 功耗目标

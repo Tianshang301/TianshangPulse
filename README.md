@@ -82,14 +82,15 @@ The SDK picks the matching `sdkconfig.defaults.<TARGET>` automatically. Target-s
 idf.py flash monitor
 ```
 
-> Note: `esp32s3` uses a custom 8MB partition table (`partitions_8mb.csv`).
+> Note: `esp32s3` (N16R8) uses a custom 16MB partition table (`partitions_16mb.csv`).
+> The legacy `partitions_8mb.csv` is kept for N8R8 boards.
 > When switching targets, run `idf.py fullclean` once and delete `sdkconfig` if
 > you hit a target mismatch error.
 
 ## Memory Strategy
 
-- Internal SRAM (768KB): hot-path data, PPG buffers, task stacks
-- PSRAM (16MB): TFLite arena (1MB), model weights, offline event cache
+- Internal SRAM: hot-path data, PPG buffers, task stacks (P4 768KB / S3 512KB)
+- PSRAM: TFLite arena (1MB), model weights, offline event cache, LVGL draw buffer (P4 16MB / S3 8MB)
 - Detailed layout: `docs/MEMORY_LAYOUT.md`
 
 ## Power Targets

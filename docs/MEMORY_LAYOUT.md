@@ -44,8 +44,13 @@
 
 | 任务 | P4 | S3 | 优先级 |
 |------|----|----|--------|
+| main（`app_main`，含显示屏 bring-up） | 8192 B | 8192 B | 1 |
 | sensor | 4096 B | 3072 B | 6 |
 | inference | 8192 B | 8192 B | 5 |
+| LVGL 端口（`esp_lvgl_port` 默认） | 7168 B | 7168 B | 4 |
 
 > 常量：`KSensorTaskStackBytes` / `KInferenceTaskStackBytes`（platform 头文件）。
+> **主任务栈**由 Kconfig `CONFIG_ESP_MAIN_TASK_STACK_SIZE` 决定（`sdkconfig.defaults` 设 8192）：
+> 显示初始化（SPI + esp_lcd + esp_lvgl_port + LVGL 控件）全在 `app_main` 上同步执行，3584 偏紧。
+> 上板后用 `main stack HWM=` 日志（`main.c`）复核余量。
 > 待实测：`uxTaskGetStackHighWaterMark()` 验证余量，S3 若栈不足可回退至 P4 值。

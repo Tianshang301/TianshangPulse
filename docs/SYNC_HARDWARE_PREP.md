@@ -76,11 +76,15 @@
 | `firmware/main/idf_component.yml` | 新增 `espressif/esp_lvgl_port ^2.9.0`、`espressif/esp_lcd_ili9341 ^2.1.0` |
 | `firmware/main/CMakeLists.txt` | 源文件 `ui/display_driver.c`；依赖 `esp_lcd` + 两个托管组件 |
 | `firmware/main/ui/ui_manager.c` | 重写：状态屏 + `CONFIG_DISPLAY_ENABLE` 守卫（保证 P4 / 无屏板可编译可运行） |
-| `docs/HARDWARE.md` | 屏幕选型、SPI2 引脚表、BOM 状态、"未在实机验证"声明 |
-| `docs/MEMORY_LAYOUT.md` | S3 → N16R8、LVGL 绘制缓冲条目、新增 Flash 分区章节（两表对照） |
-| `docs/POWER_BUDGET.md` | 屏幕功耗行（标"未实测"） |
-| `README.md` / `docs/README.zh-CN.md` | 目录树、目标芯片 N16R8、组件清单（英中同步） |
+| `docs/HARDWARE.md` | 屏幕选型、SPI2 引脚表、BOM 状态、"未在实机验证"声明；平台表 N16R8；IMU 行补 MPU6500 替代 |
+| `docs/MEMORY_LAYOUT.md` | S3 → N16R8、LVGL 绘制缓冲条目、Flash 分区章节（两表对照）、任务栈表补 main/LVGL 行 |
+| `docs/POWER_BUDGET.md` | 屏幕功耗行（标"未实测"）、S3 标题 N16R8、IMU 行更名、背光 PWM 待办项 |
+| `firmware/sdkconfig.defaults` | 新增 `CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192`（显示初始化在 `app_main` 上同步执行，3584 偏紧） |
+| `firmware/main/main.c` | `ui_init()` 之后打印 `main stack HWM`（上板复核栈余量用） |
+| `firmware/main/platform/platform_esp32s3.h` / `platform_esp32p4.h` | 移除从未被引用的 `KMainTaskStackBytes(4096)`（与 Kconfig 真相源冲突，易误导） |
+| `README.md` / `docs/README.zh-CN.md` | 目录树、目标芯片 N16R8、组件清单、Build 章节分区表（8MB→16MB）、Memory Strategy 分平台标注 |
 | `.gitignore` | 密钥类文件忽略规则 |
+| `docs/SYNC_HARDWARE_PREP.md` | 本同步文档（新增） |
 
 ---
 
@@ -97,7 +101,14 @@
 | 构建现场状态 | 读取生成区 `sdkconfig` | ✅ `CONFIG_IDF_TARGET="esp32s3"`、`FLASHSIZE="16MB"`、`SPIRAM_MODE_OCT=y`、`PARTITION_TABLE_CUSTOM_FILENAME="partitions_16mb.csv"` |
 | 提交可见性（AGENTS §9.2 自检） | `git check-ignore` + `git status --short` | ✅ 任务文件均可见、未被误忽略 |
 | 密钥审计（3 层） | 跟踪文件扫描 / 工作区扫描 / `git log --all -p --full-history` 全历史扫描 | ✅ 均无命中；`.gitignore` 加固后用 6 个 dummy 文件回归（`check-ignore` exit 0 全部被忽略） |
-| GitHub 同步 | `git ls-remote origin main` | ✅ 远端 tip `7f5f576…` = 本地 HEAD = `origin/main`，无 ahead/behind |
+| GitHub 同步 | `git ls-remote origin main` | ✅ 远端 tip = 本地 HEAD = `origin/main`，无 ahead/behind |
+| **显示进入启动路径** | 读 `main.c` + 扫镜像字符串 | ✅ `main.c:66` `ESP_ERROR_CHECK(ui_init())`；`TianshangPulse.bin` 内含 `ILI9341` / `LVGL UI ready` / `AF monitor` 字符串 |
+| **主任务栈加固生效** | 读生成版 `sdkconfig` + 扫镜像 | ✅ `CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192`；镜像内含 `main stack HWM` 字符串 |
+| **引脚/资源冲突检查** | 全固件 GPIO 引用扫描 | ✅ 固件仅用 I2C SDA=18/SCL=8；显示 9/10/11/12/14/21 无重叠，避开 26-37(Flash+OPI PSRAM)/0/3/45/46(strapping)/19/20(USB)/43/44(UART0) |
+| **任务优先级格局** | 读 `main.c` + `esp_lvgl_port` 头 | ✅ sensor=6 > inference=5 > LVGL 端口=4 > main=1（显示不抢占采样/推理） |
+| **传感器缺失不阻塞启动** | 读 `sensors/sensor.c` | ✅ `sensor_init()` 对 I2C/MAX30102/MPU 失败只告警、恒返回 `ESP_OK` → 可先点亮屏幕再接传感器 |
+| **看门狗行为** | 读生成版 `sdkconfig` | ✅ `TASK_WDT_PANIC` 未启用（仅告警不重启）；sensor 每 4s 通知一窗 → 推理任务不会触发 10s 超时 |
+| 双目标构建（加固后复测） | `idf.py build` ×2 | ✅ S3 `0`（bin 0xEA190 = 958,864 B，app 剩 70%）；P4 `0` |
 
 ### 5.1 构建中适配的一个组件 API 差异（备查）
 
@@ -151,6 +162,9 @@ MIPI-DSI 屏改由独立接口 `lvgl_port_add_disp_dsi()` 承担。已按本地�
 - 传输：`trans_queue_depth = 0` → **同步传输**（~30ms/帧，状态屏足够，且 flush 顺序天然正确）
 - 缓冲：150KB 全帧绘制缓冲置于 **PSRAM**（`buff_spiram = true`），小块 SRAM 流式搬运至 SPI DMA
 - 内存约束：符合 MEMORY_LAYOUT §2（大缓冲入 PSRAM）与 §4（未在 ISR 中分配堆）
+- **主任务栈**：显示 bring-up 全部在 `app_main` 上同步执行（SPI 总线 + 面板 + LVGL 端口 + 控件/主题创建），
+  故 `CONFIG_ESP_MAIN_TASK_STACK_SIZE` 已由 IDF 默认 3584 **提高到 8192**（见 `firmware/sdkconfig.defaults` 注释）
+- 任务优先级格局：sensor=6 > inference=5 > **LVGL 端口任务=4** > main=1（显示不会抢占采样/推理）
 
 ---
 
@@ -161,7 +175,7 @@ MIPI-DSI 屏改由独立接口 `lvgl_port_add_disp_dsi()` 承担。已按本地�
 | 0 | **核对开发板原理图**：GPIO8/18（I2C）与 GPIO12/11/10/9/14/21（屏幕）未被板载外设占用 | 无冲突方可接线 |
 | 1 | **基线**：不接屏幕先烧录（`bash idf.py -p COMx flash monitor`） | 日志出现 "LVGL UI ready (ILI9341 …)"（此时屏幕无显示属正常）；确认传感器/BLE 日志正常 |
 | 2 | 接屏幕 6 线（SCK/MOSI/CS/DC/RST/BL，**先不接触摸**） | — |
-| 3 | 烧录并观察日志 | `ILI9341 240x320 ready (SPI2 @40000000Hz, PSRAM draw buffer)` + `LVGL UI ready` |
+| 3 | 烧录并观察日志 | `ILI9341 240x320 ready (SPI2 @40000000Hz, PSRAM draw buffer)` + `LVGL UI ready` + `main stack HWM=<数值>`（该值=主任务剩余栈字节数，偏小则再提高主任务栈） |
 | 4 | 按 §7.1 症状表调参（**每次只改一项**，改完重新 build+flash） | 画面正常：深底 + 标题 + HR 占位 + AF 运行态 |
 | 5 | 接 MAX30102 与 MPU6500，I2C 扫描 | 地址 `0x57`（MAX30102）与 `0x68`（MPU6500）可见；PPG/IMU 读数合理 |
 | 6 | 记录实测功耗（各电源模式） | 回填 `docs/POWER_BUDGET.md` §4 |
@@ -178,7 +192,7 @@ MIPI-DSI 屏改由独立接口 `lvgl_port_add_disp_dsi()` 承担。已按本地�
 | 底片感（反色） | 面板 invert | `esp_lcd_panel_invert_color(…, true)` |
 | 画面镜像 / 横竖颠倒 | mirror / swap | `esp_lcd_panel_mirror()` / `swap_xy()`，或 `disp_cfg.rotation` |
 | 图像错行 / 偏移一个像素 | 字节序 | `disp_cfg.flags.swap_bytes` 取反 |
-| 开机即重启 / 棕色掉电 | 面包板供电不足（屏 + BLE 峰值） | 屏与板分别供电、共地；缩短杜邦线 |
+| 开机即重启 / 棕色掉电 | 面包板供电不足（屏 + BLE 峰值） | 屏与板分别供电、共地；缩短杜邦线；**并在屏的 3V3/GND 就近加 100µF 电解 + 0.1µF 陶瓷去耦** |
 
 > ⏳ 表中**所有处置均为预案，未经实机验证**；实际根因以上板日志为准。
 
@@ -195,6 +209,8 @@ MIPI-DSI 屏改由独立接口 `lvgl_port_add_disp_dsi()` 承担。已按本地�
 | 5 | LVGL 任务栈与 CPU 占用 | ⏳ 未实机 | 与 25Hz 推理共存 | `uxTaskGetStackHighWaterMark()` 抽查；必要时提高 LVGL 任务优先级配置 |
 | 6 | 背光为**常开 GPIO**（非 PWM） | 已知取舍 | 功耗 | 后续迭代接 LEDC PWM |
 | 7 | 触摸未启用 | 已知取舍 | 交互 | 需要交互时再接 5 线并引入 `esp_lcd_touch` |
+| 8 | 主任务栈承载显示初始化 | ✅ 已加固（未实机复测） | 首启栈溢出 → panic | 主任务栈 3584 → **8192**；上板读 `main stack HWM=` 日志复核余量 |
+| 9 | USB 串口驱动 / 数据线 | ⏳ 待确认 | 无法烧录 | 到货后确认 CP2102N/CH343 驱动已装，并使用**数据线**（非纯充电线） |
 
 ---
 
@@ -226,6 +242,10 @@ MIPI-DSI 屏改由独立接口 `lvgl_port_add_disp_dsi()` 承担。已按本地�
 | `docs/HARDWARE.md` IMU 行未标注 MPU6500 替代 | ✅ 已补注（同地址 0x68、驱动无 WHO_AM_I 校验） |
 | `docs/POWER_BUDGET.md` 屏幕功耗行缺失（P4 表写"待选型"、S3 表无该行） | ✅ 已补 ILI9341 行并标"未实测" |
 | `docs/POWER_BUDGET.md` P4 表 IMU 行仍写 MPU6886、低功耗 checklist 缺屏幕背光项 | ✅ 已改为 MPU6500 / MPU6886；已补背光 PWM 待办项 |
+| `README.md` / `docs/README.zh-CN.md` Build 章节仍称 "esp32s3 使用 8MB 分区表"（与已切换的 16MB 矛盾，会误导烧录） | ✅ 已改为 16MB（`partitions_16mb.csv`），并注明 8MB 表保留给 N8R8 |
+| `README.md` / `docs/README.zh-CN.md` 的 Memory Strategy 用的是 P4 规格（768KB / 16MB） | ✅ 已改为分平台标注（P4 768KB/16MB；S3 512KB/8MB） |
+| `Kconfig.projbuild` 显示引脚帮助文本的规避清单漏列 33/34（OPI PSRAM 数据线） | ✅ 已改为 `26-37 (flash SPI0/1 + OPI PSRAM data lines)` |
+| 显示初始化在 3584B 主任务栈上同步执行（潜在首启栈溢出） | ✅ 已加固：主任务栈 8192 + `main.c` 增加 `main stack HWM` 日志 |
 
 ### 10.2 待办（不阻塞，按优先级）
 
@@ -258,7 +278,11 @@ MIPI-DSI 屏改由独立接口 `lvgl_port_add_disp_dsi()` 承担。已按本地�
 - 工作区仍存在**与本轮无关的另一条主线 WIP（未提交）**：
   `gatt_server.c`、`offline_cache.{c,h}`、`max30102.c`、`signal_gate.c`、`config.h`、`main.c`、
   `docs/PROTOCOL_VECTORS.md`、`protocol-pin.json`、`PLAN*.md`、`tests/`、`scripts/parity_check.py`、
-  `sensors/ppg_preprocess.{c,h}` 等。**本轮全程未触碰这些文件**。
+  `sensors/ppg_preprocess.{c,h}` 等。**本轮全程未触碰这些文件**（唯一例外见下条）。
+- **`firmware/main/main.c` 的例外**：本轮在其 `ui_init()` 之后新增 **1 行 `main stack HWM` 日志**，
+  但该文件同时承载你尚未提交的改造（双缓冲 + 任务通知 + TWDT + 预处理接入，187 行 diff），
+  因此**该文件未被提交**——它会在你下次提交 `main.c` 时一并生效。
+  在提交之前，仓库 HEAD 版本的 `main.c` 不含该探针日志（其余功能不受影响）。
 - **未在实机验证**：本文档所有 ⏳ 标记项均**未在真实硬件上验证**；
   在完成 §7 步骤 7 之前，任何"已通过"表述仅指**编译/主机侧验证**。
 

@@ -31,7 +31,7 @@
 | 序 | 文件 | 读它为了什么（报告中须逐项给一行结论） |
 | --- | --- | --- |
 | R1 | `AGENTS.md`（重点 **§9 跨仓协作**、**§4 代码红线**、§3.3 问题上报格式） | 协议变更六步、数值唯一性、四个同步点、代码红线、上报模板 |
-| R2 | `protocol-pin.json` | **数值真源**：`protocol_version` / `next_protocol_version`、两个 `lock_files[].value`、`wire_constraints`、`open_items`（O-1…O-6）、`pending_decisions`（D1–D6）、`sync_rules` |
+| R2 | `protocol-pin.json` | **数值真源**：`protocol_version` / `next_protocol_version`、两个 `lock_files[].value`、`wire_constraints`、`open_items`（O-1…O-6、D-A…D-D）、`pending_decisions`（D1–D6）、`sync_rules` |
 | R3 | `docs/PROTOCOL.md` | 线格式定义（字段布局 / UUID / 属性 / 语义）。**已知其 §6 与向量矛盾**（见 O-1），读时须带着这个前提 |
 | R4 | `docs/PROTOCOL_VECTORS.md` | **唯一裁决依据**：24 条黄金向量（V1、V1b、V1c、V2…V10f）+ 反例（P6a/P6b/P7/V9/V9b）；状态 **FROZEN** |
 | R5 | `HANDOFF_TIANSHANGHEALTH.md` | **接口说明书（重点读）**：§3.2 扫描 P0、§3.3 MTU/写类型、§3.5 Android 权限、§4 UUID（含 128 位展开）、§5 CRC-8、§6 六个接口逐条、§6.7 GATT 错误处理、§7 时间戳降级、§8 开放项、§10 契约测试、§11 任务清单、§13 边界声明 |
@@ -99,7 +99,7 @@
 | 文件名 | `HANDOFF_REPORT_HEALTH_SIDE.md` |
 | 位置 | TianshangHealth 仓库**根目录** |
 | 编码 / 行尾 | UTF-8 **无 BOM**；LF |
-| 入库 | 必须提交进 git（若被 `O-6` 的 `.gitignore` 挡住，**先放行再提交**——报告进不了 git 视为未交付） |
+| 入库 | 必须提交进 git（若被 `O-6` 的 `.gitignore` 挡住，**先放行再提交**——报告进不了 git 视为未交付）。**门槛不放宽**；本轮实测已满足，范围限定见 §7 |
 | 语言 | 中文；术语保留原文（UUID、MTU、CCCD、GATT 等） |
 
 ### 4.2 必含章节（9 节，缺任一节即视为未完成）
@@ -107,10 +107,10 @@
 | # | 章节 | 必须写明的内容 |
 | --- | --- | --- |
 | 1 | **已读清单** | R1–R9（9 项）与 H1–H7（7 项）逐项：路径 / 是否读到 / **一行核心结论**；未读项必须给原因。目标覆盖率 **100%** |
-| 2 | **仓库现状核查** | ① 模块列表（`feature/watch`、`core/pulse-protocol` 是否存在）；② `BleManager.kt` 过滤代码**确切位置与原文**；③ `ProtocolParser.ktcrc8()` 是否存在 + 算法参数；④ `.gitignore` 实际规则；⑤ Room 迁移链与 `anomaly_events` 是否含 `userId` |
+| 2 | **仓库现状核查** | ① 模块列表（`feature/watch`、`core/pulse-protocol` 是否存在）；② `BleManager.kt` 过滤代码**确切位置与原文**；③ `ProtocolParser.kt` 的 `crc8()` 是否存在 + 算法参数；④ `.gitignore` 实际规则；⑤ Room 迁移链与 `anomaly_events` 是否含 `userId` |
 | 3 | **协议一致性自查** | 对照 R4 的 **24 条向量逐条**标注：✅ 已一致 / ⚠️ 未实现 / ❌ 实现冲突（附**代码位置**与差异描述）。**不允许**「整体符合」这类模糊结论 |
 | 4 | **矛盾与待上报项** | 你发现的「文档 vs 代码」「两仓不一致」等，逐条给：现象 / 证据 / 影响 / 建议归属；并**明确写「未自行修改真源」** |
-| 5 | **D1–D6 影响评估** | 每项：对 Client 的影响 + 你的**建议**（须标注「建议，不代拍板」） |
+| 5 | **D1–D6 影响评估** | 每项：对 Client 的影响 + 你的**建议**（须标注「建议，不代拍板」）。**措辞红线（红线 #7 的验收落点）**：§5 / §6 / §9.2 一律**不得**出现「已批准 / 已确认」等字样，只能写「按推荐列先行实现、未获用户批准」 |
 | 6 | **任务执行状态** | D6 / T0–T3 / T5b / T6 / T7 / T11 **逐卡**：状态、改动文件、**验收命令与输出摘要** |
 | 7 | **测试证据** | 契约测试：跑了几条、通过几条、失败明细；单元/主机测试的**命令 + 结果原文**（如 `./gradlew :feature:watch:test`） |
 | 8 | **边界声明** | ① 「未在实机验证」声明；② `git status` 结果清单（**改了哪些 / 明确未改哪些**，尤其要证明三件套与 Pulse 仓未被触碰） |
@@ -124,7 +124,7 @@
 | G2 | **24 条向量逐条有结论**，无模糊表述 |
 | G3 | 报告中 **0 个**协议版本号、**0 个** 64 位十六进制串 |
 | G4 | 每条「已验证」结论都附**命令与输出**；无硬件支撑的一律标「未在实机验证」 |
-| G5 | 报告已 **commit** 且可在你方仓库 `git log` 中查到 |
+| G5 | 报告已 **commit** 且可在你方仓库 `git log` 中查到 —— **本轮已通过**（`git -C TianshangHealth log --oneline -- HANDOFF_REPORT_HEALTH_SIDE.md` 有记录）。注意该门槛的效力**仅限 TianshangHealth 仓内**；外层工作区仓不跟踪任何项目树，跨仓 `git log` 查不到，见 §7 |
 | G6 | §8 中明确列出**未修改**的文件清单（含三件套与 Pulse 仓） |
 
 ---
@@ -153,5 +153,18 @@
 
 ---
 
+## 7. 执行结果回填（本轮对齐，2026-09-24）
+
+> 本节为交付后的闭环记录。§1–§6 是**当初投给 Health 侧 Agent 的原始提示词**，其指示性文字保持原样不回改。
+
+1. **✅ 《交接报告》已交付**：`HANDOFF_REPORT_HEALTH_SIDE.md`，本仓根目录，双仓同名副本（byte-identical）。
+2. **门槛 G1–G6**：全部达成。G5 的效力范围限定见 §4.3 —— 该门槛**仅在 TianshangHealth 仓内成立**；外层工作区仓 `Project13` 仅跟踪 `.gitignore`、无 `.gitmodules`，两棵项目树在其下整体未跟踪，故跨仓 `git log` 查不到。
+3. **⚠️ 红线 #7 曾违反，已更正**：交付报告原稿 §5 / §6 / §9.2 共 9 处称 D1–D6「已批准 / 已确认」，但用户从未拍板（两仓 `PLAN_WATCH_INTEGRATION.md` 仍标「待用户拍板」、§11.1 复选框全空，`protocol-pin.json` → `pending_decisions` 仍含 D1–D6）。已在报告侧统一改为「按 PLAN §4 默认规则先行实现、未获批准」，并在 §4 以「自曝 · 授权误归属」条目留痕。§4.2 第 5 行已补入对应的措辞红线。
+4. **R5 悬空必读已解决**：§1.1 的 R5 指向 `HANDOFF_TIANSHANGHEALTH.md`，本仓原先**不存在**该文件（只存在于 Pulse 仓）。已按其自身 §12.6 的同步义务同名复制至本仓根目录，R5 现已可直接在本仓读到。
+5. **VCS 可见性边界**：本简报、`HANDOFF_TIANSHANGHEALTH.md`、以及除报告外的治理文档在 Health 仓均被 `.gitignore` 忽略；报告在 Pulse 仓为未跟踪。因此交接文档「双仓 byte-identical」的一致性**只能靠内容比对（哈希/全文比对）校验，不能靠 `git status`**。
+6. **仍未闭环**：D1–D6 待用户拍板；Pulse 侧固件第一批（广播 `0xFFF0` + Security Manager）尚未落地；`D-A`…`D-D` 四项缺陷**已登记进 `protocol-pin.json.open_items`**（R2，2026-09-24，用户授权「登记进 pin」；仅元数据，未动 `lock_files` / `protocol_version` / `pinned_at` / `status`），⏳ 各项**解决**（收紧文档 / 固件接线）仍属所有者，须走六步流程升版后关闭；全项目链路行为**未在实机验证**（硬件在途）。
+
+---
+
 *由 TianshangPulse 侧 Agent 生成 · 接口说明书：`HANDOFF_TIANSHANGHEALTH.md` · 对端同名计划：`PLAN_WATCH_INTEGRATION.md`*
-*状态：⏳ 待对接 Agent 执行并交付《交接报告》· 全项目**未在实机验证**（硬件在途）*
+*状态：✅ 《交接报告》已交付（`HANDOFF_REPORT_HEALTH_SIDE.md`，双仓同名副本）· 第一批（连通层）已落地；第二批待 Pulse 侧 `0xFFF5` 升版；**D1–D6 仍待用户拍板** · 全项目**未在实机验证**（硬件在途）*

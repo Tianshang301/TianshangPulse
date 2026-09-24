@@ -4,6 +4,21 @@
 # FreeRTOS
 CONFIG_FREERTOS_HZ=1000
 CONFIG_FREERTOS_OPTIMIZED_SCHEDULER=y
+# Idle task stack. app_main is pinned to CPU0, so CPU0's idle task does all the
+# PSRAM cache critical-section work. The 1536B default overflows on OPI PSRAM
+# (ESP32-S3 N16R8) and kills the core right after "cpu_start: Multicore app".
+CONFIG_FREERTOS_IDLE_TASK_STACKSIZE=3072
+# Bump the shared minimal stack used by portSTARTup before task stacks exist.
+# Too-small here masks as "core dies right after cpu_start: Multicore app" with no
+# panic banner (log UART isn't up yet to print one).
+CONFIG_ESP_MINIMAL_SHARED_STACK_SIZE=3072
+
+# Power management. power_manager_init() calls esp_pm_configure(); with
+# CONFIG_PM_ENABLE unset that is a stub returning ESP_ERR_NOT_SUPPORTED, and the
+# ESP_ERROR_CHECK at main.c aborts the whole boot. light_sleep_enable=true
+# additionally requires the tickless-idle Kconfig below.
+CONFIG_PM_ENABLE=y
+CONFIG_FREERTOS_USE_TICKLESS_IDLE=y
 
 # BLE (NimBLE host + controller)
 CONFIG_BT_ENABLED=y
@@ -11,6 +26,17 @@ CONFIG_BT_CONTROLLER_ENABLED=y
 CONFIG_BT_NIMBLE_ENABLED=y
 CONFIG_BT_NIMBLE_ATT_PREFERRED_MTU=512
 CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
+# NimBLE host task stack: the IDF default 4096 is the bare floor and panics
+# (Core 0 stack overflow) right after "cpu_start: Multicore app" on the ESP32-S3
+# once SMP + GATT config run. 8192 is the documented safe value.
+CONFIG_BT_NIMBLE_HOST_TASK_STACK_SIZE=8192
+CONFIG_BT_NIMBLE_TASK_STACK_SIZE=8192
+# Roles: this device is a pure GATT Server (watch) - Peripheral + Broadcaster only.
+# Central/Observer are compiled out to cut host stack depth.
+CONFIG_BT_NIMBLE_ROLE_CENTRAL=n
+CONFIG_BT_NIMBLE_ROLE_PERIPHERAL=y
+CONFIG_BT_NIMBLE_ROLE_BROADCASTER=y
+CONFIG_BT_NIMBLE_ROLE_OBSERVER=n
 
 # I2C bus (shared by MAX30102 + MPU6886)
 CONFIG_SENSOR_I2C_PORT=0

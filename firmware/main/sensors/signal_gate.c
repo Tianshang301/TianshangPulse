@@ -42,8 +42,9 @@ float signal_gate_motion_energy(const int16_t *ax, const int16_t *ay,
     const float fc = 0.5f;                 // 与脚本一致的高通截止
     const float a = 1.0f - expf(-2.0f * (float)M_PI * fc / (float)sample_rate_hz);
 
-    float px = 0.0f, py = 0.0f, pz = 0.0f; // 上一输入
-    float qx = 0.0f, qy = 0.0f, qz = 0.0f; // 上一输出
+    /* 三轴先合成标量模值 mx 再过滤，仅需单流状态 */
+    float px = 0.0f;   // 上一输入
+    float qx = 0.0f;   // 上一输出
     double sum = 0.0, sum2 = 0.0;
     size_t cnt = 0;
     for (size_t i = 0; i < n; i++) {

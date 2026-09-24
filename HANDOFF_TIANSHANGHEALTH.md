@@ -6,8 +6,15 @@
 > **本文件不含协议版本号与 SHA-256**（按 AGENTS.md §9.1「数值唯一性」，该两类数值只允许出现在 `protocol-pin.json`）。
 > **状态图例**：✅ 已实现并经主机侧验证 ｜ ⏳ 接口存在但**未在实机验证** ｜ 🚫 已知缺陷/待决，**禁止提前实现**
 > **当前状态**：✅ 已完成 Server 侧核查「问题 1–7」的**文档修订**（明细见文末「修订记录」）；
-> ⏳ 「建议修订顺序」**第 7 项（把 D-A…D-D 登记进 `protocol-pin.json.open_items`）尚未执行**，
-> 该登记完成前本文档**不作为正式 Client 实施基线**；⏳ 全文**仍待实机联调**。
+> ✅ 已按 Health 侧第一批交付**回填**（§10 与 §13.6 的模块/权限前置已按实际状态更新，§12.6 的镜像已执行）；
+> ⏳ 全文**仍待实机联调**。
+>
+> **两道独立闸门**（互不依赖，勿混为一谈）：
+> ① **登记闸门**：✅ **已关闭**（2026-09-24）——D-A / D-B / D-C / D-D 已登记进 `protocol-pin.json.open_items`
+>（仅元数据，未动 `lock_files` / `protocol_version` / `pinned_at` / `status`，未重算哈希、未升版）。
+> ⏳ **解决**（收紧 `PROTOCOL.md` §3/§5、固件补 CRC 校验与 `ble_notify_spo2` 接线等）仍属所有者待办，见 §8.2。
+> ② **基线闸门**：本文档曾对 Health 侧现状滞后描述（§10、§13.6 初版），现已回填；
+> 但 §11 的**第二批任务仍被 D1–D6 未拍板与 Pulse 侧未升版所阻塞**，该部分此前「不可执行」的判断依然成立。
 
 ---
 
@@ -369,16 +376,28 @@ for each byte b in payload[0 .. n-1]:
 | `O-5` | `anomaly_events` 缺 `userId`，与多用户模型不一致 | 手表事件无法按用户隔离 | 第三批评估：`MIGRATION_3_4` 补 `userId`（DEFAULT NULL），**不阻塞当前接线** | Health |
 | `O-6` | Health 仓 `.gitignore` 忽略全部 `*.md` 与 `*.json` | 治理文档不入 git，换机即丢，**契约镜像漂移无法被检测** | 精准放行 `!docs/*.md` 与 `!protocol-pin.json`（契约文件必须可审计） | Health（需仓库所有者确认） |
 
-### 8.2 本轮交接核查新发现（**尚未登记进 `protocol-pin.json`**，提请 Server 侧走流程登记）
+### 8.2 本轮交接核查新发现（✅ 已登记进 `protocol-pin.json.open_items`，⏳ 解决仍属所有者）
 
 > 以下 4 项由本交接文档编写时对照「真源 vs 固件源码」核查得出。
 > 按 AGENTS.md §9.2：**以 `docs/PROTOCOL_VECTORS.md` 为唯一裁决依据**。
-> 因 `protocol-pin.json` 需双仓 byte-identical 且由 Server 侧统一维护，本文**未修改该文件**，
-> 请 Server 侧在下一次协议变更时一并登记。
+> **登记状态**：✅ D-A / D-B / D-C / D-D 已于 2026-09-24 登记进 `protocol-pin.json.open_items`（仅元数据新增，未动 `lock_files` / `protocol_version` / `pinned_at` / `status`，未重算哈希、未升版；双仓已 byte-identical）。
+> ⏳ **解决**（下表"待办动作"列）仍属仓库所有者待办——收紧文档/固件会改变线格式或固件行为，须走 §12 六步流程升版后才算关闭。
+
+**待所有者解决 · 每项关闭前造成的具体阻塞**（✅ 登记已于 2026-09-24 完成；⏳ 下列"待办动作"仍未执行）：
+
+| 编号 | 待办动作（⏳ 未执行） | 关闭前造成的具体阻塞 |
+| --- | --- | --- |
+| **D-A** | `PROTOCOL.md` §5 的 `0xFFF3` 长度收紧为 2 字节；固件补 CRC 校验与 `len < 2` 拒绝 | 固件校验无法收紧（现行只校 `len ≥ 1`、`idx ≤ 1`）；Client 侧**验收断言无法据固件行为写定**——1 字节写入到底算成功还是失败，无判据 |
+| **D-B** | `PROTOCOL.md` §3 的 `0xFFF1` 保留字段收紧为恒 8 字节 | `PROTOCOL.md` §3 无法收紧，文档与向量长期两说；固件 `len > 32` 的过松分支无判据可依 |
+| **D-C** | 固件接线 `ble_notify_spo2()`（当前已定义、0 处调用） | **血氧端到端验收不可做**——验收必须以「收不到血氧」为前提，否则任何血氧断言都会误判 |
+| **D-D** | 接线 `ble_get_user_config()` / `ble_get_model_index()` 的下游消费 | **下行配置验收判据缺失**——写入返回成功但手表行为不变，只能以日志为准，无法验证配置真正生效 |
+
+> ✅ **登记已完成**（2026-09-24）：D-A…D-D 已写入 `protocol-pin.json.open_items`（仅元数据，未动哈希/版本/`status`）。
+> ⏳ **解决**（上表"待办动作"）仍需仓库所有者走 §12 六步流程——收紧文档/固件会改变线格式或固件行为，须升版后才算关闭。
 
 | 编号 | 差异事实 | 裁决（以向量为准） | Client 行动 | 建议归属 |
 | --- | --- | --- | --- | --- |
-| **D-A** | `0xFFF3` 三处不一致：`PROTOCOL.md` §5 只写 1 字节、无 CRC 行；向量 V7/V7b 与 `wire_constraints.0xFFF3_min_length` 要求 **2 字节（idx + crc8）**；固件 `on_chr_fff3_write` 只校 `len≥1`、`idx≤1`，**未校验 CRC、未强制 2 字节** | Client **必须发 2 字节**：`idx` + `crc8(idx)` | 按 §6.5 构造；固件待收紧（补 CRC 校验与 `len<2` 拒绝），建议登记为新 open item | Pulse（文档 + 固件） |
+| **D-A** | `0xFFF3` 三处不一致：`PROTOCOL.md` §5 只写 1 字节、无 CRC 行；向量 V7/V7b 与 `wire_constraints.0xFFF3_min_length` 要求 **2 字节（idx + crc8）**；固件 `on_chr_fff3_write` 只校 `len≥1`、`idx≤1`，**未校验 CRC、未强制 2 字节** | Client **必须发 2 字节**：`idx` + `crc8(idx)` | 按 §6.5 构造；固件待收紧（补 CRC 校验与 `len<2` 拒绝） | Pulse（文档 + 固件） |
 | **D-B** | `0xFFF1` 保留字段长度松：`PROTOCOL.md` §3 写 `6 n uint8[] 保留`（变长）；向量 V6 明确 `reserved[1]=0x00` 且**总长恒 8**；固件校 `len<8` 或 `len>32` 拒绝 | Client **恒发 8 字节** | 构造器固定返回 8 字节，不发变长 | Pulse（文档收紧） |
 | **D-C** | `0x2A5F` 血氧「有定义、无发送」：`ble_notify_spo2()` 在 `gatt_server.c` 中**已定义但全固件 0 处调用**（`main.c` 只调 `ble_notify_heart_rate` / `ble_notify_anomaly`） | 接口有效但**当前无数据** | UI 先标「暂无数据」；**验收不以收到血氧为通过条件**；待 Server 接线 | Pulse（固件接线） |
 | **D-D** | `0xFFF1` / `0xFFF3` 写入暂无下游消费：`ble_get_user_config()` 与 `ble_get_model_index()` **已定义但全固件无人调用** → 写入后手表行为不变 | Client 正常写、正常读回（按向量） | 验收以「写入返回成功 + Server 日志打印」为准，**不要求手表行为变化** | Pulse（后续接线） |
@@ -419,11 +438,12 @@ for each byte b in payload[0 .. n-1]:
 | TianshangPulse | Server | `tests/host/test_protocol.c`（`tests/host/stubs/` 已备 FreeRTOS / esp_log 桩） | 见 `PLAN_WATCH_INTEGRATION.md` Phase 4.6 任务卡 |
 | TianshangHealth | Client | 第一批：`feature:watch` 内联测试；第二批：`core:pulse-protocol` 模块 `ProtocolCodecTest.kt`（纯 JVM，无 Android 依赖）（分档由 D5 决定） | 第二批：`./gradlew :core:pulse-protocol:test` |
 
-> ⚠️ **前置条件（Health 侧）**：据 TianshangHealth README 的架构列表（以该仓库为准），当前**不含**
-> `feature/watch` 与 `core/pulse-protocol`（现有：`app`、`core/common`、`core/database`、`core/security`、
-> `feature/onboarding`、`dashboard`、`period`、`steps`、`fitness`、`sleep`、`nutrition`、`analysis`）。
-> 因此上表的**测试落点与命令在模块创建前不可执行**——须先完成 §11 的 P0 建模块任务，
-> 并同步更新 Health README 的架构与测试命令。
+> ⚠️ **前置条件（Health 侧）—— 已按第一批交付回填**：本文档初版据当时 README 判断 Health 侧**既无** `feature/watch` **也无** `core/pulse-protocol`，故结论「测试落点与命令不可执行」对**两档同时成立**。现状必须拆成两态：
+>
+> - **第一批（内联）—— 已落地、命令可执行**：`feature/watch` **已存在**（`settings.gradle` 已注册、`app` 已依赖、导航与 Dashboard 入口已接入）；Health README 已补 Watch 特性与 BLE 权限表，并显式声明**不需要 `INTERNET`**。契约测试已内联为 `feature/watch/src/test/.../ble/ProtocolCodecTest.kt`，`./gradlew :feature:watch:test` 实跑通过（结果见 `HANDOFF_REPORT_HEALTH_SIDE.md` §7）。
+> - **第二批（抽取）—— 仍未就绪、命令不可执行**：`core/pulse-protocol` **确实不存在**（按 D5 分档推迟，本轮有意不建），故上表「第二批：`./gradlew :core:pulse-protocol:test`」一行**依然不可执行**，须待 D5 拍板 + Pulse 侧升版后另行落地。
+>
+> 另：初版此处列出的模块清单还漏了 `core/period-api`，一并补齐。
 
 
 **要求**：
@@ -474,11 +494,14 @@ for each byte b in payload[0 .. n-1]:
 2. **版本规则**：兼容新增（如新增特征值）→ **MINOR**；改字段语义/长度/字节序 → **MAJOR**；裁决与措辞 → **PATCH**；
 3. 新增向量**不得**修改既有向量的期望值；
 4. 发现协议矛盾（文档 vs 代码）时：以 `docs/PROTOCOL_VECTORS.md` 为唯一裁决依据，
-   **先登记 `protocol-pin.json` → `open_items`**（本文 §8.2 的 D-A / D-B 待办即属此类），再暂停实现并上报；
+   **先登记 `protocol-pin.json` → `open_items`**（本文 §8.2 的 D-A / D-B / D-C / D-D 即属此类，✅ 已登记、⏳ 解决待办），再暂停实现并上报；
 5. **本文件的同步义务**：本文件不是四同步点之一，不参与 SHA-256 锁定；但**协议任何变更都必须复核本文件**，
    保持接口描述与真源一致（发现不一致以真源为准并修订本文件）；
 6. 本文件与 `PLAN_WATCH_INTEGRATION.md` 一样，应**同名复制到 TianshangHealth 仓库**；
    注意 `O-6`（Health 侧 `.gitignore` 忽略全部 `*.md`）需先放行，否则该文件进不了 git。
+   **本轮已执行**：Health 根目录已建同名副本。但因 Health `.gitignore` 仍忽略 `*.md`（仅对报告与契约文件加了白名单），
+   **该副本不入 git**——交接文档的「双仓 byte-identical」因此**只能靠内容/哈希比对校验，不能靠 `git status`**。
+   附带效果：简报的必读项 R5 原先指向本文件，而 Health 仓当时并不存在它，R5 只能跨仓解析；副本就位后 R5 可直接在本仓读到。
 
 ---
 
@@ -487,16 +510,29 @@ for each byte b in payload[0 .. n-1]:
 1. **未在实机验证**：本文件基于 `docs/PROTOCOL.md`、`docs/PROTOCOL_VECTORS.md`、`protocol-pin.json`
    与 `firmware/main/ble/gatt_server.c` 源码交叉核对生成，**未经真实硬件联调**。
    无实机时以下三项**无法确认**：广播载荷实际内容、配对是否拦住未绑定设备、MTU 实际协商值；
-2. **§8.2 的 D-A / D-B / D-C / D-D 为本轮新发现**，尚未写入 `protocol-pin.json.open_items`，
-   请 Server 侧按 §12 第 4 条登记；
+2. **§8.2 的 D-A / D-B / D-C / D-D 为本轮新发现**，✅ 已于 2026-09-24 登记进 `protocol-pin.json.open_items`
+   （仅元数据新增，未动 `lock_files` / `protocol_version` / `pinned_at` / `status`，未重算哈希、未升版）；
+   ⏳ 各项「待办动作」（收紧 `PROTOCOL.md` §3/§5、固件补 CRC 校验与 `ble_notify_spo2` 接线等）仍属所有者，须走 §12 六步流程升版后方可关闭；
 3. 本文**不含协议版本号与 SHA-256**；需要这些数值时只读 `protocol-pin.json`；
-4. 本文**未修改**任何协议真源文件（`PROTOCOL.md` / `PROTOCOL_VECTORS.md` / `protocol-pin.json`），
-   故**未触发**协议变更六步流程、**未重算**任何哈希。
+4. 本文**未修改**协议真源 `docs/PROTOCOL.md` 与 `docs/PROTOCOL_VECTORS.md`（四项 `lock_files` 哈希未变）；
+   `protocol-pin.json` 仅在 `open_items` 追加 D-A…D-D 四条元数据（2026-09-24），**未改** `lock_files` / `protocol_version` / `pinned_at` / `status`、**未重算**任何哈希、**未触发**协议变更六步流程（六步流程只针对线格式变更，登记 `open_items` 不改线格式）。
 5. **本轮已按 Server 侧核查意见完成问题 1–7 的修订**（明细见文末「修订记录」）；
-   「建议修订顺序」第 7 项（把 D-A…D-D 登记进 `protocol-pin.json.open_items`）**需仓库所有者执行**，
-   完成后本文档方可作为正式 Client 实施基线；
-6. **Health 侧前置尚未落地**：`feature:watch` / `core:pulse-protocol` 模块与 Android BLE 权限均未就绪
-   （§3.5、§10），在此之前 §11 的 P0 项无法执行完毕。
+   「建议修订顺序」第 7 项（把 D-A…D-D 登记进 `protocol-pin.json.open_items`）已于 **2026-09-24 执行**
+   （R2 对齐轮，用户授权「登记进 pin」）——仅追加 `open_items` 元数据，未动冻结核（哈希/版本/`status`）。
+   ⏳ 各项**解决**（收紧 `PROTOCOL.md` / 固件接线）仍属所有者，须走 §12 六步流程升版后方可关闭；
+   关闭前本文档的 Client 验收断言以「向量为准 + 固件当前行为」为基线（见 §8.2 表）；
+6. **Health 侧前置状态（已按第一批交付回填）**：`feature:watch` 模块与 §3.5 的 Android BLE 权限**已落地**
+   （Health README 已增权限表并显式声明不需要 `INTERNET`）；`core:pulse-protocol` **仍不存在**（按 D5 分档推迟）。
+   §11 的**第一批 P0 已完成**，**第二批 P0 仍待 Pulse 侧升版**——
+   此前「§11 的 P0 项无法执行完毕」的判断对第一批已失效，对第二批依然成立；
+7. **范围声明**：
+   - **R1 文档对齐（2026-09-24）**：已对齐三份交接文档（本文、`AGENT_HANDOFF_TIANSHANGHEALTH.md`、
+     `HANDOFF_REPORT_HEALTH_SIDE.md`），修掉彼此矛盾与过期陈述（Health 侧模块/权限前置、简报未闭环、
+     报告的 D1–D6 授权误归属、测试计数口径、git 可见性陈述）；该轮**未改**协议真源、**未登记** `open_items`、
+     **未触碰**固件代码、**未执行**任何 commit。
+   - **R2 缺陷登记（2026-09-24，用户授权「登记进 pin」）**：向 `protocol-pin.json.open_items` 追加 D-A…D-D 四条元数据
+     （仅元数据，未动 `lock_files` / `protocol_version` / `pinned_at` / `status`，未重算哈希、未升版，双仓已 byte-identical）；
+     ⏳ 各项**解决**仍属所有者。本轮**仍未触碰**固件代码、**仍未** commit、**仍未改** `docs/PROTOCOL.md` 与 `docs/PROTOCOL_VECTORS.md`。
 
 ---
 
@@ -512,8 +548,11 @@ for each byte b in payload[0 .. n-1]:
 | 问题 6 | §3.5（新增） | ✅ 新增 Android 权限与扫描前置条件 |
 | 问题 7 | §4 / §6.7 / §11（新增） | ✅ 128-bit UUID 表、GATT 错误处理与重试、README 隐私声明任务 |
 | 自检 | 全文 | ✅ 修复 2 处 setext 渲染缺陷（`---` 紧跟正文行会被解析为二级标题） |
-| **待办** | `protocol-pin.json` | ⏳ 「建议修订顺序」第 7 项：登记 D-A / D-B / D-C / D-D 为 `open_items` —— **本文未执行**（需仓库所有者，见 §12 第 4 条） |
+| **待办** | `protocol-pin.json` | ✅ R2（2026-09-24，用户授权「登记进 pin」）已将 D-A / D-B / D-C / D-D 登记进 `open_items`（仅元数据，未动冻结核）；⏳ 各项**解决**（收紧文档 / 固件接线）仍属所有者，须走 §12 六步流程升版后关闭（见 §8.2 表、§13.5） |
+| 本轮对齐（2026-09-24） | §8.2 / §10 / §12.6 / §13 / 页脚 | ✅ §8.2 登记项升级为「待所有者执行 + 具体阻塞」行动清单；回填 Health 侧模块与权限的真实状态（`feature:watch` 已落地、`core:pulse-protocol` 仍不存在、模块清单补 `core/period-api`）；记录 §12.6 镜像已执行及其 git 可见性边界；新增 §13.7 范围声明；页头状态改为「两道独立闸门」 |
+| R2 登记级联（2026-09-24） | §8.2 / §12.4 / §13.2 / §13.4 / §13.5 / §13.7 / 修订记录 / 页脚 | ✅ D-A…D-D 登记进 `open_items` 后，全文原先声称「尚未登记 / 未改 pin / 未登记 open_items」的陈述已同步更正为「已登记（仅元数据），解决仍属所有者」；§13.7 拆为 R1 文档对齐 + R2 缺陷登记两段 |
 
 ---
 
-*编写：TianshangPulse（Server 侧） · 真源见 §2 · 变更流程见 §12 · 状态：⏳ 待实机联调*
+*编写：TianshangPulse（Server 侧） · 真源见 §2 · 变更流程见 §12*
+*状态：✅ 已按 Health 侧第一批交付回填，并与其他两份交接文档对齐（2026-09-24）· ✅ D-A…D-D 已登记进 `open_items`（R2，2026-09-24），⏳ 解决仍属所有者（升版后关闭） · ⏳ 第二批待 Pulse 侧 `0xFFF5` 升版 · ⏳ D1–D6 待用户拍板 · 全文**仍待实机联调**（硬件在途）*

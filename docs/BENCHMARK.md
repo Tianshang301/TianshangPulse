@@ -141,6 +141,10 @@ scripts/export_lr_coefs.py --weights model/af/af_model_lr.npz
 - **数值一致性已验证**：float 截断系数 vs 训练端完整精度，得分最大偏差 5.6e-07、
   0.5 阈值分类 100% 一致（WRIST 1,690 窗实测）
 - P4 编译通过（bin 0x6E370 B）
+- **双端 parity 验证（2026-09-20）**：固件处理链（`ppg_preprocess` → `signal_gate_ppg_sqi` → `af_features_extract`）与 numpy 参考实现在真实 MIMIC 数据 200 窗上：
+  n_peaks 100% 一致，6 维特征 max|Δ| < 3e-5，SQI max|Δ| < 3e-6（硬门全绿，`scripts/parity_check.py`）。
+  此前固件缺失训练端的逐窗 Z-score+clip 预处理（train/serve skew），已由 `sensors/ppg_preprocess.c` 修复；
+  残余：scipy `find_peaks` 与固件峰集合一致率 67.5%（plateau/首峰优先规则差异，信息性，待 P2 自适应峰检一并优化）
 
 > 为何不用 ONNX：LR 仅 7 个标量系数，一次 6 维内积即可表达；
 > ONNX 是为多算子深度模型（CNN/LSTM）设计计算图格式，引入 ONNX runtime

@@ -1,8 +1,14 @@
 # ESP32-S3 specific sdkconfig (N16R8: 16MB flash + 8MB octal PSRAM)
 # Target set via: idf.py set-target esp32s3
 
-# PSRAM: 8MB octal (OPI) PSRAM, required for TFLite Micro arena
-CONFIG_SPIRAM=y
+# PSRAM: 8MB octal (OPI)。当前在本板（ESP32-S3-WROOM-1 N16R8, chip rev v0.2）上
+# app 阶段 MSPI/PSRAM cache 初始化会崩溃：开机探测到 8MB PSRAM 后立即死在
+# "cpu_start: Multicore app"，连 app_main 都进不了（RTCWDT 循环复位）。
+# 为让固件能起来（含 BLE 广播），这里禁用 PSRAM。TFLite arena 分配失败已优雅降级，
+# 推理走硬编码逻辑回归，运行时无影响（见 main/c 与 tflite/inference_engine.cc）。
+# 重新启用需先解决 PSRAM-on 崩溃（见 bug #1）。
+#CONFIG_SPIRAM=y
+CONFIG_SPIRAM=n
 CONFIG_SPIRAM_MODE_OCT=y
 CONFIG_SPIRAM_SPEED_80M=y
 CONFIG_SPIRAM_USE_CAPS_ALLOC=y
@@ -14,3 +20,16 @@ CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
 # Custom partition table sized for 16MB flash (see partitions_16mb.csv)
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions_16mb.csv"
+
+# --- Bring-up diagnostics (TEMP: strip before release) ---
+# The 8MB external-RAM memory test stalls on this board at 80MHz: the chip
+# re-enters "cpu_start: Multicore app" and then silently resets (RTCWDT_RTC_RST)
+# forever. Disabled to isolate the hang (re-enable after MSPI timing is settled).
+CONFIG_SPIRAM_MEMTEST=n
+# Turn on the cpu_start checkpoint logs (DEBUG level, compiled out by default):
+#   "Pro cpu up" -> "Starting app cpu" -> "App cpu up" -> "Pro cpu start user code"
+# They bracket the exact window that hangs, which is otherwise silent because the
+# log UART is not up yet.
+CONFIG_LOG_MAXIMUM_LEVEL_DEBUG=y
+CONFIG_LOG_DEFAULT_LEVEL_DEBUG=y
+

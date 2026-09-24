@@ -10,6 +10,8 @@ idf_component_register(
         "sensors/af_features.c"
         "ble/gatt_server.c"
         "ble/offline_cache.c"
+        "ble/protocol.c"
+        "ble/adv.c"
         "ui/ui_manager.c"
         "ui/display_driver.c"
         "power/power_manager.c"

@@ -99,6 +99,8 @@ python scripts/convert_model.py     --input model/tianshang_lstm_fp32.onnx     -
 | `0xFFF3` | Write | APP→手表：模型 A/B 切换指令 |
 | `0xFFF4` | Read/Write | 批量数据同步（离线缓存的原始 PPG） |
 
+> 上表为摘要，**权威定义始终是 `docs/PROTOCOL.md`**；新增/修改特征值必须走 §9 的协议变更流程（含向量与 `protocol-pin.json` 同步）。
+
 ---
 
 ### 🔌 `Hardware-Agent` — 硬件与低功耗专家
@@ -205,7 +207,9 @@ TianshangHealth 团队实现 APP 端（Client）
 | 变更类型 | 必须更新的文档 |
 |---------|--------------|
 | 新增传感器 | `docs/HARDWARE.md` + `docs/POWER_BUDGET.md` |
-| 修改 GATT 协议 | `docs/PROTOCOL.md` |
+| 修改 GATT 协议 | `docs/PROTOCOL.md` + `docs/PROTOCOL_VECTORS.md` + `protocol-pin.json`（三份同步复制到 TianshangHealth）+ 本文件 §9 |
+| 新增/修改特征值 | `docs/PROTOCOL.md` + `docs/PROTOCOL_VECTORS.md` + `protocol-pin.json` + 本文件 §2 的 UUID 摘要表 |
+| 修改广播/连接行为 | `firmware/main/config.h` + `docs/POWER_BUDGET.md`（若影响占空比）+ `PLAN_WATCH_INTEGRATION.md` 实施状态 |
 | 模型结构变更 | `docs/MODEL_ARCH.md` + `README.md` 中的 Benchmark 表格 |
 | 内存布局调整 | `docs/MEMORY_LAYOUT.md` |
 | 新增构建依赖 | `README.md` 的 Build 章节 |
@@ -295,6 +299,85 @@ idf.py monitor  # uxTaskGetStackHighWaterMark()
 
 ---
 
-*最后更新：2026-09-05*  
+### 8.2 ✅ P0 正确性修复 + 训练/推理对齐（阶段 1+2，已执行）
+
+**内容**：A1 `max30102` 空指针防护 / A2 双缓冲 + 事件驱动采样 / A3 FIFO 批量 drain + OVF 检测 / A4 逐窗 Z-score+clip±3（训练-推理对齐）/ A5 `offline_cache` `peek_batch` + `pop(n)` + `0xFFF4` 精确 ACK / A6 `portMUX` 临界区 / B5 任务栈校验 + TWDT；E1 parity 硬门。
+**验证**：`tests/host/test_offline_cache.c` ALL PASS；`scripts/parity_check.py` 硬门全绿；P4/S3 双目标编译通过。
+**归档说明**：`PLAN.md` 保留原文并加"当前计划指向"横幅；**本轮接线计划见 `PLAN_WATCH_INTEGRATION.md`**。
+
+### 8.3 ⏳ 与 TianshangHealth 接线（进行中）
+
+见 [`PLAN_WATCH_INTEGRATION.md`](./PLAN_WATCH_INTEGRATION.md)（Server 侧任务卡 P1–P9；对端同名文档在 TianshangHealth 仓库）。
+
+---
+
+## 9. 与 TianshangHealth 接线协作规范
+
+> 本章定义本仓库与 Android APP 仓库 [TianshangHealth](https://github.com/Tianshang301/TianshangHealth) 的**协议契约与跨仓库同步规则**。
+> 计划与任务卡见 [`PLAN_WATCH_INTEGRATION.md`](./PLAN_WATCH_INTEGRATION.md)。本章只写**规则**，不写**数值**。
+
+### 9.1 角色与真源
+
+| 项 | 内容 |
+| --- | --- |
+| 角色 | TianshangPulse = **GATT Server**（协议**定义方**，跨仓库变更中**先改**） |
+| 协议真源 | **本仓库** `docs/PROTOCOL.md`（Health 侧为只读镜像） |
+| 契约数值真源 | **本仓库** `docs/PROTOCOL_VECTORS.md`（Health 侧为只读镜像） |
+| 版本/哈希真源 | `protocol-pin.json`（本仓库**生成**，两仓库必须 **byte-identical**） |
+| 计划文档 | [`PLAN_WATCH_INTEGRATION.md`](./PLAN_WATCH_INTEGRATION.md)（与对端**同名**） |
+
+**四个同步点**：`protocol-pin.json`、`docs/PROTOCOL.md`、`docs/PROTOCOL_VECTORS.md`、两仓库 `AGENTS.md` 的接线章节。
+**数值唯一性**：SHA-256 哈希只允许出现在 `protocol-pin.json`；本文件（及任何 `.md`）不得复制版本号或哈希。
+**生成方向不可逆**：哈希只在本仓库重算，然后整体复制到 Health；**禁止**在 Health 侧重算后回填。
+
+### 9.2 协议变更流程（六步，顺序不可颠倒；本仓库执行第 1–4 步）
+
+```
+Pulse 改 PROTOCOL.md → Pulse 更新 PROTOCOL_VECTORS.md → Pulse 重算 SHA-256 写 pin
+   → 复制三个文件到 Health（byte 级） → 双端实现 + 跑契约测试 → 双端更新文档
+```
+
+- 版本规则：**MINOR** = 兼容新增（如新增特征值）/ **MAJOR** = 改字段语义、长度、字节序 / **PATCH** = 裁决与措辞
+- 新增向量**不得**修改既有向量的期望值
+- 校验命令见 `PLAN_WATCH_INTEGRATION.md` §7.4（期望输出 `pin identical: True` + 四行 `True`）
+- 发现协议矛盾（文档 vs 代码）时：以 `docs/PROTOCOL_VECTORS.md` 为唯一裁决依据，先登记 `protocol-pin.json` → `open_items`，再暂停实现并上报
+- **提交可见性自检**：本仓库不忽略 `*.md` / `*.json`，提交协议变更时 `git status` 必须能看到 `docs/PROTOCOL_VECTORS.md` 与 `protocol-pin.json`；若看不到，说明被误加入忽略规则，须立即排查（对照 `TianshangHealth/.gitignore` 的 `*.md`/`*.json` 规则与该仓库计划文档 §7.7）
+
+### 9.3 协议实现约束（改 GATT / 广播前必读）
+
+| # | 约束 |
+| --- | --- |
+| 1 | **CRC-8**：poly `0x07` / init `0x00` / 无反射 / 无最终异或；覆盖"除末尾 CRC 字节外的全部字节"。实现必须与 `docs/PROTOCOL_VECTORS.md` 逐字节一致 |
+| 2 | **整批 CRC 不可用**：对完整载荷（含其自身 CRC 字节）恒有 `crc8(msg) == 0x00`；`0xFFF4` 只发 `N × 11` 字节，**不追加**整批 CRC |
+| 3 | `0xFFF1` 必须要求 `len >= 8` 且 CRC 覆盖前 7 字节（含 1 字节 reserved）；`0xFFF3` `idx > 1` 必须拒绝 |
+| 4 | `0xFFF4` 必须保持 **Read 只预览、Write 才精确 pop** 的语义（`s_batch_pending`），否则 MTU 截断会永久丢事件 |
+| 5 | **时间戳**必须是 Unix epoch ms；未校准时 `0xFFF2` 的 `type` 最高位置 `0x80` 表示"未校准"；**禁止**在未校准时伪装成 epoch 值 |
+| 6 | **广播载荷必须显式配置**（`ble_gap_adv_set_fields` / `ble_gap_adv_rsp_set_fields`）：至少包含 flags + 自定义服务 UUID；设备名放 adv 或 scan response。**必须**检查返回值并打日志 |
+| 7 | 广播间隔不得永久使用 FAST；应 FAST burst 后切 SLOW（功耗预算见 `docs/POWER_BUDGET.md`） |
+| 8 | 所有 UUID、广播字段、缓冲区大小必须用 `#define`/`const`（AGENTS.md §4 红线，禁魔法数） |
+| 9 | 新增特征值必须同步更新：`gatt_db`、`docs/PROTOCOL.md`、`docs/PROTOCOL_VECTORS.md`、`protocol-pin.json`、本文件 §2 的 UUID 摘要表 |
+| 10 | 空口链路当前**未加密、不配对**（未配置 Security Manager）；如需加密须按协议变更流程升版并同步 Health |
+
+### 9.4 当前实施状态
+
+| 项 | 状态 |
+| --- | --- |
+| 计划 | [`PLAN_WATCH_INTEGRATION.md`](./PLAN_WATCH_INTEGRATION.md)（任务卡 P1–P9，**待用户拍板 D1–D6 / 范围 / 实机**） |
+| 断点 | 已识别 11 项；P0 = B1 广播载荷未配置、B2 时间戳为开机 ms、B3 `PROTOCOL.md` §6 与实现矛盾 |
+| 已正确可复用（勿改坏） | `ble_crc8`、11 字节事件打包、`0xFFF1` 8 字节校验、`0xFFF4` peek/ACK-pop、`offline_cache` 临界区、GAP 电源模式联动、双目标编译 |
+| 已知明文 | 空口未加密（B5/D3），文档需显式声明 |
+| 无 CI | 本仓库无 `.github/`（见任务卡 P8） |
+
+### 9.5 任务完成门槛（DoD）
+
+1. `scripts/run_host_tests.ps1`（含 `tests/host/test_protocol.c`）全 PASS，期望值与向量逐字节一致
+2. 双目标 `idf.py build`（`esp32p4` / `esp32s3`）通过
+3. 协议变更走完 §9.2 六步；`protocol-pin.json` 与 Health 侧 byte-identical
+4. 未破坏 `offline_cache` / parity 既有测试；未引入任何网络能力
+5. 无实机时**必须**标注"未在实机验证"，**禁止**声称已通过
+
+---
+
+*最后更新：2026-09-20*  
 *维护者：Tianshang301*  
 *协议：MIT*

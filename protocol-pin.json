@@ -1,0 +1,151 @@
+{
+  "schema": "tianshang-protocol-pin/1",
+  "status": "FROZEN",
+  "protocol_version": "1.0.0",
+  "next_protocol_version": "1.1.0",
+  "source_of_truth": "TianshangPulse/docs/PROTOCOL.md",
+  "pinned_at": "2026-09-20",
+  "pinned_by": "Tianshang301",
+  "mirror_rule": "本文件在 TianshangPulse 与 TianshangHealth 两个仓库中必须 byte-identical；数值（版本/哈希）只在本文件出现，禁止在 AGENTS.md 或计划文档中复制具体数值。",
+  "roles": {
+    "TianshangPulse": "GATT Server（协议定义方，先改）",
+    "TianshangHealth": "GATT Client（协议遵循方，后跟）"
+  },
+  "services": {
+    "0x180D": {
+      "note": "标准心率服务（不复用标准载荷结构，见 open_items O-3）",
+      "characteristics": {
+        "0x2A37": "NOTIFY  uint16 LE bpm（无 flags 字节）",
+        "0x2A5F": "NOTIFY  uint8 pct"
+      }
+    },
+    "0xFFF0": {
+      "note": "Tianshang 自定义服务；**当前不在广播载荷中**（见 open_items O-4）",
+      "characteristics": {
+        "0xFFF1": "WRITE (with response)  用户配置，8 字节",
+        "0xFFF2": "NOTIFY  异常事件，11 字节",
+        "0xFFF3": "WRITE (with response)  模型切换，1 字节 + CRC",
+        "0xFFF4": "READ | WRITE  离线批量，N x 11 字节；ACK 为任意 >=1 字节写入"
+      }
+    }
+  },
+  "planned_characteristics": {
+    "0xFFF5": "Time Sync（Write 授时 + Read 回读校验；待 D1 决策；批准后随 next_protocol_version 升版）",
+    "0xFFF6": "Vitals Upload（待 D4 决策；批准后随 next_protocol_version 升版）"
+  },
+  "wire_constraints": {
+    "0xFFF1_min_length": 8,
+    "0xFFF2_length": 11,
+    "0xFFF3_min_length": 2,
+    "0xFFF4_max_events_per_read": 20,
+    "0xFFF4_read_frame": "N x 11 字节，N = len / 11；**不追加整批 CRC**（见 open_items O-1）",
+    "write_type": "0xFFF1/0xFFF3/0xFFF4 固件仅声明 PROP_WRITE（with response）→ APP 必须使用 WRITE_TYPE_DEFAULT，禁止 WRITE_TYPE_NO_RESPONSE",
+    "cccd": "NOTIFY 特征值的 CCCD 由 NimBLE 自动注册；Android 侧 getDescriptor(0x2902) 可取得，但写入必须串行"
+  },
+  "lock_files": [
+    {
+      "target": "docs/PROTOCOL.md",
+      "algo": "sha256",
+      "value": "e4d89e9ec02005bee703b0dd3aa7c52c69245496d5bd518d130180c88b250a2d",
+      "mirror": "两仓库 byte-identical"
+    },
+    {
+      "target": "docs/PROTOCOL_VECTORS.md",
+      "algo": "sha256",
+      "value": "690bca1da28a424053fcb6e4c02b7b3e62d8f5bace6d38f9c46f6dfd3c58b549",
+      "vectors": "V1, V1b, V1c, V2, V3, V4, V5, V5b, V6, V6b, V6c, V6d, V7, V7b, V8a, V8b, V9, V9b, V10, V10b, V10c, V10d, V10e, V10f",
+      "mirror": "两仓库 byte-identical"
+    }
+  ],
+  "open_items": {
+    "O-1": {
+      "title": "PROTOCOL.md §6「末尾带 CRC-8」与实现不符，且整批 CRC 恒为 0x00",
+      "detail": "因初值 0x00 + 无最终异或 + 无反射，对任意完整载荷 msg（含其自身 CRC）恒有 crc8(msg) == 0x00（5 个样本实测均为 0x00）。固件实现（offline_cache peek + 逐条 ble_pack_anomaly）本就不追加整批 CRC，这是正确做法。",
+      "resolution_default": "以实现为准：修订 PROTOCOL.md §6 文字为「载荷 = N x 11 字节，每条自带 CRC-8，N = len/11 <= 20」，删除「末尾带 CRC-8」。",
+      "resolution_alt": "若确需整批校验：覆盖拼接后的 10N 字节原始载荷（剔除每条 CRC 字节），V8a(30B)=0xd2、V8b(200B)=0x6e。",
+      "owner": "TianshangPulse（Server）",
+      "gate": "Phase 2.1 联调前必须由用户确认"
+    },
+    "O-2": {
+      "title": "timestamp_ms 语义违规：固件发送开机以来毫秒",
+      "detail": "firmware/main/main.c:190 使用 esp_timer_get_time()/1000（开机以来 ms），而 PROTOCOL.md §4 要求 Unix epoch ms。APP 侧会得到 1970 年的时间。",
+      "resolution_default": "新增 0xFFF5 时间同步（D1）并让固件维护 epoch_ms = synced_epoch + (esp_timer - synced_at)；未同步前以 flag 标记，APP 显示「未校准」而非 1970。",
+      "owner": "两端（Server 实现，Client 消费）",
+      "gate": "Phase 2 阻塞项"
+    },
+    "O-3": {
+      "title": "0x2A37 / 0x2A5F 载荷偏离 BLE 标准结构",
+      "detail": "标准 Heart Rate Measurement 需先发 flags 字节；标准 PLX Continuous Measurement 同理。本设备直接发 uint16 LE / uint8。通用第三方 BLE 客户端无法正确解析本设备。",
+      "resolution_default": "有意保留（私有协议，改动会破坏已发布固件与 APP 的兼容）；在两端文档与代码注释中显式标注为已知偏离，禁止单端更改。",
+      "owner": "TianshangPulse（Server）",
+      "gate": "记录即可，不阻塞"
+    },
+    "O-4": {
+      "title": "广播载荷未设置 0xFFF0 服务 UUID（设备发现失败）",
+      "detail": "gatt_server.c::start_advertising()（133 行起）未调用 ble_gap_adv_set_fields / ble_gap_adv_rsp_set_fields；全固件 0 处 uuids16。而 APP 侧 BleManager.kt:93 使用 ScanFilter.setServiceUuid(0xFFF0)（硬件级过滤）→ 扫不到设备。",
+      "resolution_default": "两端同时修：Server 显式设置广播字段（flags + 0xFFF0(+0x180D) + 设备名）；Client 放宽为「不设硬件过滤，按 ScanRecord.deviceName 前缀或 adv 中的 0xFFF0 判定」，并在连接后以服务发现结果做最终校验。",
+      "owner": "两端（Server 先改，Client 兼容）",
+      "gate": "Phase 1 阻塞项（P0）"
+    },
+    "O-5": {
+      "title": "anomaly_events 缺 userId，与多用户模型不一致",
+      "detail": "core/database 的 Users/DailyHealth 等表均有 userId 外键，但 anomaly_events（MIGRATION_1_2 建）没有，手表事件无法按用户隔离。",
+      "resolution_default": "第三批评估：新增 MIGRATION_3_4 补 userId（DEFAULT NULL），不阻塞当前接线",
+      "owner": "TianshangHealth（Client）",
+      "gate": "记录，不阻塞"
+    },
+    "O-6": {
+      "title": "TianshangHealth/.gitignore 忽略全部 *.md 与 *.json，治理文档不入 git",
+      "detail": "AGENTS.md / PLAN*.md / docs/*.md / protocol-pin.json 均被忽略，换机即丢，git 无法检测契约镜像漂移。",
+      "resolution_default": "精准放行 !docs/*.md 与 !protocol-pin.json（契约文件必须可审计）；AGENTS.md / PLAN*.md 是否放行由仓库所有者决定（含安全发现内容）",
+      "owner": "TianshangHealth（仓库策略）",
+      "gate": "需用户确认"
+    },
+    "D-A": {
+      "title": "0xFFF3 三处不一致：PROTOCOL.md §5 只写 1 字节且无 CRC 行；向量 V7/V7b 与 wire_constraints.0xFFF3_min_length 要求 2 字节（idx + crc8）；固件 on_chr_fff3_write 只校 len>=1、idx<=1，未校验 CRC、未强制 2 字节",
+      "detail": "Client 按向量发 2 字节即兼容；固件校验过松，1 字节写入的成败无判据。裁决以向量为准：Client 必须发 2 字节 idx + crc8(idx)。",
+      "resolution_default": "PROTOCOL.md §5 收紧为 2 字节（idx + CRC，CRC 覆盖 idx）；固件补 CRC 校验与 len<2 拒绝。",
+      "owner": "TianshangPulse（文档 + 固件）",
+      "gate": "联调前关闭（固件校验收紧后 Client 验收断言方可据固件行为写定）"
+    },
+    "D-B": {
+      "title": "0xFFF1 保留字段长度松：PROTOCOL.md §3 写「6 n uint8[] 保留」（变长）；向量 V6 明确 reserved[1]=0x00 且总长恒 8；固件校 len<8 或 len>32 拒绝",
+      "detail": "Client 恒发 8 字节即兼容；固件过松。裁决以向量为准：Client 恒发固定 8 字节。",
+      "resolution_default": "PROTOCOL.md §3 收紧为恒 8 字节（reserved 固定 1 字节=0x00），删除变长表述。",
+      "owner": "TianshangPulse（文档）",
+      "gate": "文档一致性；联调前关闭"
+    },
+    "D-C": {
+      "title": "0x2A5F 血氧「有定义、无发送」：ble_notify_spo2() 在 gatt_server.c 中已定义但全固件 0 处调用（main.c 只调 ble_notify_heart_rate / ble_notify_anomaly）",
+      "detail": "接口有效但当前无数据。Client 收不到血氧；验收不得以收到血氧为通过条件。",
+      "resolution_default": "固件接线 ble_notify_spo2()（在 SpO2 计算路径上调用）。",
+      "owner": "TianshangPulse（固件接线）",
+      "gate": "血氧端到端验收的前提；未关闭前血氧验收以「收不到」为预期"
+    },
+    "D-D": {
+      "title": "0xFFF1 / 0xFFF3 写入暂无下游消费：ble_get_user_config() 与 ble_get_model_index() 已定义但全固件无人调用，写入后手表行为不变",
+      "detail": "Client 正常写、正常读回（按向量）；验收以写入返回成功 + Server 日志为准，不要求手表行为变化。",
+      "resolution_default": "后续接线 ble_get_user_config() / ble_get_model_index() 的下游消费（影响采样阈值、模型选择）。",
+      "owner": "TianshangPulse（后续接线）",
+      "gate": "下行配置验收判据；未关闭前验收以日志为准"
+    }
+  },
+  "pending_decisions": {
+    "D1": "新增 0xFFF5 时间同步特征值，Write 授时 + Read 回读校验（回读返回同格式 9 字节，APP 据此计算往返延迟并校正偏移）（推荐：做，含回读）",
+    "D2": "0xFFF2 timestamp_ms 在未同步期的降级策略（推荐：reserved 标志位 + APP 显示未校准）",
+    "D3": "传输层准入控制：已核实当前未配置 Security Manager（任意邻近设备可连上读走 HR/血氧与离线 AF 事件）→ 推荐本期做最小绑定（LE Just Works + bonding + BLE_GAP_EVENT_REPEAT_PAIRING + CONFIG_BT_NIMBLE_NVS_PERSIST=y），APP 侧同期 createBond()；不做则须在 README/SECURITY.md 声明任何人可连接",
+    "D4": "体征时序落库，但收敛范围：仅新增 vitals_samples（HR/SPO2，含 userId）；不写 DailyHealth（heartRateResting 语义为静息心率，且 daily_health 无血氧列）；排除体温（固件无体温通道）（推荐：做，按收敛范围）",
+    "D5": "契约测试载体分档：第一批内联 feature:watch/src/test（不动构建）；第二批再抽 core:pulse-protocol（Android library 形态 + 纯 Kotlin 代码）（推荐：分档）",
+    "D6": "移除 Room fallbackToDestructiveMigration（推荐：移除，改用显式 Migration）",
+    "scope": "第一批（连通层：Health D6+T0-T3+T5b+T6内联+T7+T11，Pulse P1+P10+P3+P4+P8）≈7.25 人日（Health 4.75 + Pulse 2.5）；第二批（协议升版+语义层）≈7.25 人日（Health 4.75 + Pulse 2.5）；全部 ≈14.5 人日（Health ≈9.5 + Pulse ≈5.0）",
+    "hardware": "建议采购 ESP32-S3 DevKitC（约 40 元）并配置 CONFIG_SENSOR_SIM_PPG=y 验证全链路；完全无实机时三项无法确认：广播载荷实际内容、配对是否拦住未绑定设备、MTU 实际协商值",
+    "revision": "R2（2026-09-20）：D1 增加 Read 回读校验；D3 由不做上调为本期做最小绑定（依据：未配置 Security Manager）；D4 收敛为仅 vitals_samples + HR/SPO2（依据：DailyHealth 无血氧列、heartRateResting 语义不符、固件无体温通道）；D5 分档；新增 O-5/O-6；范围重估为第一批≈7.25 / 第二批≈7.25 / 全部≈14.5 人日"
+  },
+  "sync_rules": [
+    "协议真源唯一：定义只写在 TianshangPulse/docs/PROTOCOL.md；Health 侧 docs/PROTOCOL.md 是只读镜像。",
+    "版本规则：新增特征值/新增可选字段且向后兼容 -> MINOR；改字段语义/长度/字节序 -> MAJOR；措辞与裁决记录 -> PATCH。",
+    "改协议六步：(1) Pulse 改 PROTOCOL.md 并升版本 (2) Pulse 生成/更新 PROTOCOL_VECTORS.md (3) Pulse 重算两个 SHA-256 并写 protocol-pin.json (4) 复制 PROTOCOL.md + PROTOCOL_VECTORS.md + protocol-pin.json 到 Health (5) 两端各自实现并跑契约测试 (6) 两端各自更新实施状态。",
+    "禁止：在 Health 侧修改协议定义或向量数值；在任一仓库保留与 pin 哈希不符的副本；未升版本就改线格式。",
+    "校验：两仓库 protocol-pin.json 必须 byte-identical；docs/PROTOCOL.md 与 docs/PROTOCOL_VECTORS.md 的 SHA-256 必须等于 pin 中 lock_files[].value。"
+  ]
+}

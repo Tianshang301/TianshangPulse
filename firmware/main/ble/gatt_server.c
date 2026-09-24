@@ -1,9 +1,12 @@
 #include <string.h>
 #include "ble/gatt_server.h"
+#include "ble/protocol.h"
+#include "ble/adv.h"
 #include "ble/offline_cache.h"
 #include "power/power_manager.h"
 #include "esp_log.h"
 #include "nimble/nimble_port.h"
+#include "nimble/nimble_port_freertos.h"
 #include "host/ble_hs.h"
 #include "host/ble_hs_mbuf.h"
 #include "host/util/util.h"
@@ -13,12 +16,8 @@
 
 #define TAG "gatt"
 
-#define BLE_ANOMALY_PKT_LEN  11      // type[1] + ts[8 LE] + conf[1] + crc8
-#define BLE_ANOMALY_DATA_LEN 10      // CRC 覆盖的前 10 字节
-#define BLE_USER_CFG_DATA_LEN 7      // PROTOCOL.md §3: hr[2]+spo2[1]+gender[1]+age[2]
-#define BLE_MAX_BATCH_EVENTS 20      // PROTOCOL.md §6: Read 一次 ≤20 条
-
-static const char *kDeviceName = "TianshangPulse";
+/* 线格式长度常量与 CRC-8 / 打包函数已迁至 ble/protocol.h + protocol.c（P4「行为不变」）。
+ * 广播载荷与 FAST→SLOW 策略见 ble/adv.{c,h}（O-4 / P6）。设备名用 config.h 的 KAdvDeviceName。 */
 
 static uint16_t s_hr_val_handle;
 static uint16_t s_spo2_val_handle;
@@ -28,37 +27,14 @@ static uint16_t s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
 static ble_user_config_t s_user_config;
 static uint8_t s_model_index;        // 0=A(默认) 1=B
 
+/* 0xFFF4 batch sync: events actually delivered by the last Read (cleared on APP ack) */
+static size_t s_batch_pending = 0;
+
 static int on_gap_event(struct ble_gap_event *event, void *arg);
 static int on_chr_access(uint16_t conn_handle, uint16_t attr_handle,
                          struct ble_gatt_access_ctxt *ctxt, void *arg);
-static void start_advertising(void);
-
-/* CRC-8：多项式 0x07，初值 0x00（PROTOCOL.md §1） */
-static uint8_t ble_crc8(const uint8_t *data, size_t len)
-{
-    uint8_t crc = 0x00;
-    for (size_t i = 0; i < len; i++) {
-        crc ^= data[i];
-        for (int b = 0; b < 8; b++) {
-            crc = (crc & 0x80) ? (uint8_t)((crc << 1) ^ 0x07) : (uint8_t)(crc << 1);
-        }
-    }
-    return crc;
-}
-
-/* 打包异常事件为 PROTOCOL.md §4 载荷：type + ts(LE) + conf + crc8（小端） */
-static size_t ble_pack_anomaly(const ble_anomaly_event_t *event, uint8_t *out, size_t cap)
-{
-    if (!event || !out || cap < BLE_ANOMALY_PKT_LEN) return 0;
-    out[0] = (uint8_t)event->type;
-    uint64_t ts = event->timestamp_ms;
-    for (size_t i = 0; i < 8; i++) {
-        out[1 + i] = (uint8_t)(ts >> (8 * i));
-    }
-    out[9] = event->confidence;
-    out[10] = ble_crc8(out, BLE_ANOMALY_DATA_LEN);
-    return BLE_ANOMALY_PKT_LEN;
-}
+static int on_notify_chr_access(uint16_t conn_handle, uint16_t attr_handle,
+                                struct ble_gatt_access_ctxt *ctxt, void *arg);
 
 static const struct ble_gatt_svc_def gatt_db[] = {
     {
@@ -67,13 +43,13 @@ static const struct ble_gatt_svc_def gatt_db[] = {
         .characteristics = (struct ble_gatt_chr_def[]){
             {
                 .uuid = BLE_UUID16_DECLARE(0x2A37),   // 实时心率 BPM
-                .access_cb = NULL,
+                .access_cb = on_notify_chr_access,
                 .flags = BLE_GATT_CHR_F_NOTIFY,
                 .val_handle = &s_hr_val_handle,
             },
             {
                 .uuid = BLE_UUID16_DECLARE(0x2A5F),   // 实时血氧 %
-                .access_cb = NULL,
+                .access_cb = on_notify_chr_access,
                 .flags = BLE_GATT_CHR_F_NOTIFY,
                 .val_handle = &s_spo2_val_handle,
             },
@@ -91,7 +67,7 @@ static const struct ble_gatt_svc_def gatt_db[] = {
             },
             {
                 .uuid = BLE_UUID16_DECLARE(0xFFF2),   // Watch->APP 异常事件
-                .access_cb = NULL,
+                .access_cb = on_notify_chr_access,
                 .flags = BLE_GATT_CHR_F_NOTIFY,
                 .val_handle = &s_anomaly_val_handle,
             },
@@ -113,33 +89,15 @@ static const struct ble_gatt_svc_def gatt_db[] = {
 
 static void on_sync(void)
 {
-    esp_err_t err = ble_svc_gap_device_name_set(kDeviceName);
-    if (err == 0) {
-        err = ble_gatts_count_cfg(gatt_db);
-    }
-    if (err == 0) {
-        err = ble_gatts_add_svcs(gatt_db);
-    }
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "gatt config failed: %s", esp_err_to_name(err));
+    /* GATT DB 与设备名已在 ble_gatt_server_init() 注册（须在 host 启动前）。
+     * 这里只在 host 同步后起播广播（FAST burst）。预置广播字段须在广播停止态
+     * 调用，sync 时刻广播尚未起，满足前提。失败不 abort：协议栈仍可运行，
+     * 仅广播不可见，便于排查。 */
+    if (adv_init(on_gap_event) != ESP_OK) {
+        ESP_LOGE(TAG, "adv_init failed; advertising will be unavailable");
         return;
     }
-    start_advertising();
-}
-
-static void start_advertising(void)
-{
-    struct ble_gap_adv_params adv_params = {
-        .conn_mode = BLE_GAP_CONN_MODE_UND,
-        .disc_mode = BLE_GAP_DISC_MODE_GEN,
-        .itvl_min = BLE_GAP_ADV_FAST_INTERVAL1_MIN,
-        .itvl_max = BLE_GAP_ADV_FAST_INTERVAL1_MAX,
-    };
-    int rc = ble_gap_adv_start(BLE_OWN_ADDR_PUBLIC, NULL, BLE_HS_FOREVER,
-                               &adv_params, on_gap_event, NULL);
-    if (rc != 0) {
-        ESP_LOGE(TAG, "adv start failed: %d", rc);
-    }
+    adv_start(true);
 }
 
 static int on_gap_event(struct ble_gap_event *event, void *arg)
@@ -150,19 +108,22 @@ static int on_gap_event(struct ble_gap_event *event, void *arg)
         if (event->connect.status == 0) {
             s_conn_handle = event->connect.conn_handle;
             power_set_mode(POWER_MODE_ACTIVE);   /* 连接即全速 */
+            adv_stop();                          /* 连接态不再切档：取消慢切定时器 */
             ESP_LOGI(TAG, "connected, handle=%u", (unsigned)s_conn_handle);
         } else {
-            start_advertising();
+            adv_start(true);                     /* 连接失败：重新 FAST burst */
         }
         break;
     case BLE_GAP_EVENT_DISCONNECT:
         ESP_LOGI(TAG, "disconnected");
         s_conn_handle = BLE_HS_CONN_HANDLE_NONE;
         power_set_mode(POWER_MODE_LIGHT_SLEEP);   /* 断开即降频浅睡 */
-        start_advertising();
+        adv_start(true);                          /* 断开重连给一次 FAST burst（P6） */
         break;
     case BLE_GAP_EVENT_ADV_COMPLETE:
-        start_advertising();
+        /* 慢切定时器驱动的 stop 完成后这里依当前模式重启为 SLOW；
+         * 自然完成则按原模式重启。规避 stop+start 立即 EBUSY 竞态。 */
+        adv_restart_current();
         break;
     case BLE_GAP_EVENT_NOTIFY_TX:
         break;
@@ -172,6 +133,18 @@ static int on_gap_event(struct ble_gap_event *event, void *arg)
     return 0;
 }
 
+/* NimBLE host 事件循环任务。
+ * nimble_port_run() 是 host 的事件泵（IDF: while(1) + 永久等待事件），**永不返回**，
+ * 因此必须跑在独立任务里；早前版本在 app_main 里直接调用它，会把 app_main 永久
+ * 卡在 BLE 初始化处（表现为日志停在 adv 启动后、无 panic，其后 offline_cache /
+ * ui_init / 任务创建全部不执行）。nimble_port_stop() 后本函数返回并清理任务。 */
+static void ble_host_task(void *param)
+{
+    (void)param;
+    nimble_port_run();
+    nimble_port_freertos_deinit();
+}
+
 esp_err_t ble_gatt_server_init(void)
 {
     int rc = nimble_port_init();
@@ -179,7 +152,31 @@ esp_err_t ble_gatt_server_init(void)
         return rc;
     }
     ble_hs_cfg.sync_cb = on_sync;
-    nimble_port_run();
+
+    /* 注册 GAP / GATT 内建服务（须在 nimble_port_run 之前；否则设备名/0x1801
+     * 服务不存在，ble_svc_gap_device_name_set 与 ble_gatts_add_svcs 会失败 ——
+     * 即曾导致 on_sync 里 "gatt config failed: ERROR" 的根因）。 */
+    ble_svc_gap_init();
+    ble_svc_gatt_init();
+
+    /* 设备名 + 自定义 GATT DB 注册：count → add，均须在 host 启动前完成。 */
+    int gatt_rc = ble_svc_gap_device_name_set(KAdvDeviceName);
+    ESP_LOGI(TAG, "gap_device_name_set rc=%d", gatt_rc);
+    if (gatt_rc == 0) {
+        gatt_rc = ble_gatts_count_cfg(gatt_db);
+        ESP_LOGI(TAG, "gatts_count_cfg rc=%d", gatt_rc);
+    }
+    if (gatt_rc == 0) {
+        gatt_rc = ble_gatts_add_svcs(gatt_db);
+        ESP_LOGI(TAG, "gatts_add_svcs rc=%d", gatt_rc);
+    }
+    if (gatt_rc != 0) {
+        ESP_LOGE(TAG, "gatt config failed: rc=%d", gatt_rc);
+        return ESP_FAIL;
+    }
+
+    /* host 事件循环改为独立任务：app_main 立即返回，继续 offline_cache / UI / 任务创建 */
+    nimble_port_freertos_init(ble_host_task);
     return ESP_OK;
 }
 
@@ -188,7 +185,11 @@ esp_err_t ble_notify_heart_rate(uint16_t bpm)
     if (s_conn_handle == BLE_HS_CONN_HANDLE_NONE) {
         return ESP_ERR_INVALID_STATE;
     }
-    struct os_mbuf *om = ble_hs_mbuf_from_flat(&bpm, sizeof(bpm));
+    uint8_t pkt[BLE_HR_PKT_LEN];
+    if (ble_encode_hr(bpm, pkt, sizeof(pkt)) != BLE_HR_PKT_LEN) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    struct os_mbuf *om = ble_hs_mbuf_from_flat(pkt, sizeof(pkt));
     if (!om) return ESP_ERR_NO_MEM;
     int rc = ble_gatts_notify_custom(s_conn_handle, s_hr_val_handle, om);
     return rc == 0 ? ESP_OK : ESP_ERR_INVALID_RESPONSE;
@@ -199,7 +200,11 @@ esp_err_t ble_notify_spo2(uint8_t pct)
     if (s_conn_handle == BLE_HS_CONN_HANDLE_NONE) {
         return ESP_ERR_INVALID_STATE;
     }
-    struct os_mbuf *om = ble_hs_mbuf_from_flat(&pct, sizeof(pct));
+    uint8_t pkt[BLE_SPO2_PKT_LEN];
+    if (ble_encode_spo2(pct, pkt, sizeof(pkt)) != BLE_SPO2_PKT_LEN) {
+        return ESP_ERR_INVALID_ARG;
+    }
+    struct os_mbuf *om = ble_hs_mbuf_from_flat(pkt, sizeof(pkt));
     if (!om) return ESP_ERR_NO_MEM;
     int rc = ble_gatts_notify_custom(s_conn_handle, s_spo2_val_handle, om);
     return rc == 0 ? ESP_OK : ESP_ERR_INVALID_RESPONSE;
@@ -222,21 +227,21 @@ esp_err_t ble_notify_anomaly(const ble_anomaly_event_t *event)
 /* ==== 0xFFF1 用户配置 Write（PROTOCOL.md §3） ==== */
 static int on_chr_fff1_write(struct ble_gatt_access_ctxt *ctxt)
 {
-    uint8_t buf[32];
+    uint8_t buf[BLE_USER_CFG_MAX_LEN];
     uint16_t len = OS_MBUF_PKTLEN(ctxt->om);
-    if (len < BLE_USER_CFG_DATA_LEN + 1 || len > sizeof(buf)) {
+    if (len < BLE_USER_CFG_PKT_LEN || len > sizeof(buf)) {
         return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
     }
     if (os_mbuf_copydata(ctxt->om, 0, len, buf) != 0) {
         return BLE_ATT_ERR_UNLIKELY;
     }
-    if (ble_crc8(buf, BLE_USER_CFG_DATA_LEN) != buf[len - 1]) {
+    int prc = ble_parse_user_config(buf, len, &s_user_config);
+    if (prc == BLE_PROTO_ERR_CRC) {
         return BLE_ATT_ERR_INVALID_PDU;   // CRC-8 校验失败
     }
-    s_user_config.hr_threshold_bpm   = (uint16_t)(buf[0] | (buf[1] << 8));
-    s_user_config.spo2_threshold_pct = buf[2];
-    s_user_config.gender             = buf[3];
-    s_user_config.age                = (uint16_t)(buf[4] | (buf[5] << 8));
+    if (prc != BLE_PROTO_OK) {
+        return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+    }
     ESP_LOGI(TAG, "config: hr_thr=%u spo2_thr=%u gender=%u age=%u",
              (unsigned)s_user_config.hr_threshold_bpm,
              (unsigned)s_user_config.spo2_threshold_pct,
@@ -247,15 +252,20 @@ static int on_chr_fff1_write(struct ble_gatt_access_ctxt *ctxt)
 /* ==== 0xFFF3 模型切换 Write（PROTOCOL.md §5） ==== */
 static int on_chr_fff3_write(struct ble_gatt_access_ctxt *ctxt)
 {
-    uint8_t idx = 0;
+    uint8_t buf[1];
     uint16_t len = OS_MBUF_PKTLEN(ctxt->om);
     if (len < 1) return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
-    if (os_mbuf_copydata(ctxt->om, 0, 1, &idx) != 0) {
+    if (os_mbuf_copydata(ctxt->om, 0, 1, buf) != 0) {
         return BLE_ATT_ERR_UNLIKELY;
     }
-    if (idx > 1) return BLE_ATT_ERR_INVALID_PDU;
-    s_model_index = idx;
-    ESP_LOGI(TAG, "model switch -> %s", idx == 0 ? "A (default)" : "B");
+    int prc = ble_parse_model_switch(buf, len, &s_model_index);
+    if (prc == BLE_PROTO_ERR_RANGE) {
+        return BLE_ATT_ERR_INVALID_PDU;
+    }
+    if (prc != BLE_PROTO_OK) {
+        return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
+    }
+    ESP_LOGI(TAG, "model switch -> %s", s_model_index == 0 ? "A (default)" : "B");
     return 0;
 }
 
@@ -264,23 +274,31 @@ static int on_chr_fff4_access(uint16_t conn_handle, struct ble_gatt_access_ctxt 
 {
     (void)conn_handle;
     if (ctxt->op == BLE_GATT_ACCESS_OP_READ_CHR) {
-        size_t n = offline_cache_count();
-        if (n > 0) {
-            ble_anomaly_event_t ev[BLE_MAX_BATCH_EVENTS];
-            size_t got = 0;
-            size_t max = (n < BLE_MAX_BATCH_EVENTS) ? n : BLE_MAX_BATCH_EVENTS;
-            offline_cache_get_all(ev, max, &got);
-            for (size_t i = 0; i < got; i++) {
-                uint8_t pkt[BLE_ANOMALY_PKT_LEN];
-                if (ble_pack_anomaly(&ev[i], pkt, sizeof(pkt)) == 0) break;
-                if (os_mbuf_append(ctxt->om, pkt, sizeof(pkt)) != 0) break;  // MTU 满截断
-            }
+        /* 预览最旧 <=20 条（PROTOCOL.md §6）但不删除：APP ACK（Write）时才
+         * 精确清除本次交付的条数——单批装不下的剩余事件留待下轮 Read。 */
+        ble_anomaly_event_t ev[BLE_MAX_BATCH_EVENTS];
+        size_t got = 0;
+        size_t appended = 0;
+        s_batch_pending = 0;
+        offline_cache_peek_batch(ev, BLE_MAX_BATCH_EVENTS, &got);
+        for (size_t i = 0; i < got; i++) {
+            uint8_t pkt[BLE_ANOMALY_PKT_LEN];
+            if (ble_pack_anomaly(&ev[i], pkt, sizeof(pkt)) == 0) break;
+            if (os_mbuf_append(ctxt->om, pkt, sizeof(pkt)) != 0) break;  // MTU 满截断
+            appended++;
         }
+        s_batch_pending = appended;
         return 0;
     }
     if (ctxt->op == BLE_GATT_ACCESS_OP_WRITE_CHR) {
-        offline_cache_flush();
-        ESP_LOGI(TAG, "offline cache flushed (ack)");
+        if (s_batch_pending > 0) {
+            offline_cache_pop(s_batch_pending);
+            ESP_LOGI(TAG, "batch ack: cleared %u events, %u remain",
+                     (unsigned)s_batch_pending, (unsigned)offline_cache_count());
+        } else {
+            ESP_LOGI(TAG, "batch ack without pending read (ignored)");
+        }
+        s_batch_pending = 0;
         return 0;
     }
     return BLE_ATT_ERR_UNLIKELY;
@@ -302,6 +320,21 @@ static int on_chr_access(uint16_t conn_handle, uint16_t attr_handle,
         return on_chr_fff4_access(conn_handle, ctxt);
     }
     return BLE_ATT_ERR_UNLIKELY;
+}
+
+/* Notify-only 特征（0x2A37 / 0x2A5F / 0xFFF2）没有可读可写的值语义，但 NimBLE
+ * 要求每个特征都注册非 NULL 的 access_cb（ble_gatts_chr_is_sane 把
+ * access_cb==NULL 判为 BLE_HS_EINVAL，令 ble_gatts_count_cfg 直接失败）。
+ * 该回调仅让 count/add 通过；值仍由 ble_gatts_notify 独立发布。
+ * 若客户端真的读进来，返回 READ_NOT_PERMITTED（比 UNLIKELY 语义准确）。 */
+static int on_notify_chr_access(uint16_t conn_handle, uint16_t attr_handle,
+                               struct ble_gatt_access_ctxt *ctxt, void *arg)
+{
+    (void)conn_handle;
+    (void)attr_handle;
+    (void)ctxt;
+    (void)arg;
+    return BLE_ATT_ERR_READ_NOT_PERMITTED;
 }
 
 const ble_user_config_t *ble_get_user_config(void)

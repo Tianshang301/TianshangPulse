@@ -71,8 +71,16 @@ void app_main(void)
     ESP_LOGI(MAIN_TAG, "inference_engine_init -> %s", esp_err_to_name(inf_ret));
 
     ESP_ERROR_CHECK(ble_gatt_server_init());
-    ESP_ERROR_CHECK(offline_cache_init());
-    ESP_ERROR_CHECK(ui_init());
+    {
+        esp_err_t e = offline_cache_init();
+        ESP_LOGI(MAIN_TAG, "offline_cache_init -> %s", esp_err_to_name(e));
+        ESP_ERROR_CHECK(e);
+    }
+    {
+        esp_err_t e = ui_init();
+        ESP_LOGI(MAIN_TAG, "ui_init -> %s", esp_err_to_name(e));
+        ESP_ERROR_CHECK(e);
+    }
 
     /* 显示初始化 + LVGL 控件创建在本任务上同步完成（栈需求见
      * sdkconfig.defaults 的 CONFIG_ESP_MAIN_TASK_STACK_SIZE 说明）。

@@ -14,6 +14,13 @@ CONFIG_SPIRAM_SPEED_80M=y
 CONFIG_SPIRAM_USE_CAPS_ALLOC=y
 CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=n
 
+# Display / LVGL：ESP32-S3 的 Kconfig 默认 DISPLAY_ENABLE=y，但 LVGL 的 draw
+# buffer 需要 PSRAM（display_driver.c buff_spiram=true），PSRAM 关闭时
+# lvgl_port_init / lvgl_port_add_disp 创建队列会在 xQueueGenericCreate 处
+# assert 失败并复位。本板也未接 ILI9341 显示屏，故一并关闭显示。
+# 接上显示屏并解决 PSRAM-on 崩溃后再开。
+CONFIG_DISPLAY_ENABLE=n
+
 # Flash: 16MB (N16R8)
 CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
 

@@ -18,12 +18,25 @@ static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
 esp_err_t offline_cache_init(void)
 {
     if (s_ring) return ESP_OK;
+#if CONFIG_SPIRAM
+    /* PSRAM 开启：优先用外部 SRAM，避免挤占内部 206KB 堆 */
     s_ring = heap_caps_malloc(KMaxOfflineEvents * sizeof(ble_anomaly_event_t),
                               MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     if (!s_ring) {
         ESP_LOGE(TAG, "PSRAM alloc failed for ring buffer");
         return ESP_ERR_NO_MEM;
     }
+#else
+    /* PSRAM 关闭：MALLOC_CAP_SPIRAM 必然返回 NULL（无 PSRAM 可用），会触发
+     * ESP_ERROR_CHECK abort 与 RTC_SW_CPU_RST 复位循环。回退内部 SRAM——
+     * 100 条 x 16B = 1.6KB，完全放得下。 */
+    s_ring = heap_caps_malloc(KMaxOfflineEvents * sizeof(ble_anomaly_event_t),
+                              MALLOC_CAP_8BIT);
+    if (!s_ring) {
+        ESP_LOGE(TAG, "SRAM alloc failed for ring buffer");
+        return ESP_ERR_NO_MEM;
+    }
+#endif
     return ESP_OK;
 }
 

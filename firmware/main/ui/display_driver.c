@@ -84,11 +84,11 @@ esp_err_t display_driver_init(void)
     if (ret != ESP_OK) goto fail;
     (void)esp_lcd_panel_invert_color(s_panel_handle, false);
     /* Panel orientation -- hardware-verified 2026-09-26 on the 2.8" ILI9341
-     * breakout: with mirror_x=false the image came out left-right mirrored
-     * (text only readable right-to-left), so this panel needs MADCTL MX=1.
-     * Final MADCTL = 0x08 (BGR) | 0x40 (MX) = 0x48, the usual value for these
-     * modules. MY/MV stay 0: vertical direction and axes are already correct. */
-    (void)esp_lcd_panel_mirror(s_panel_handle, true, false);   /* MX=1, MY=0 */
+     * breakout: needs both MX=1 (fixes left-right mirror) and MY=1 (fixes
+     * upside-down vertical inversion).
+     * Final MADCTL = 0x08 (BGR) | 0x40 (MX) | 0x80 (MY) = 0xC8.
+     * MV stays 0: portrait orientation (240x320) is correct. */
+    (void)esp_lcd_panel_mirror(s_panel_handle, true, true);    /* MX=1, MY=1 */
     (void)esp_lcd_panel_swap_xy(s_panel_handle, false);
     ret = esp_lcd_panel_disp_on_off(s_panel_handle, true);
     if (ret != ESP_OK) goto fail;

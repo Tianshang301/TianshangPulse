@@ -43,7 +43,11 @@ esp_err_t display_driver_init(void)
     s_bus_ready = true;
 
     /* 2. Panel IO: 8-bit cmd / 8-bit param, mode 0.
-     * trans_queue_depth = 0 -> synchronous transfers (see display_config.h). */
+     * trans_queue_depth MUST be > 0. esp_lcd_panel_io_spi passes it straight
+     * through as spi_master's queue_size, and spi_master.c calls
+     * xQueueCreate(queue_size, ...): with 0, xQueueGenericCreate returns NULL
+     * and configASSERT(pxNewQueue) fires (see SCREEN_BRINGUP_FINDINGS.md §二).
+     * 10 is the value used by the esp_lcd / esp_lvgl_port examples. */
     esp_lcd_panel_io_spi_config_t io_cfg = {
         .dc_gpio_num = KDisplayDcGpio,
         .cs_gpio_num = KDisplayCsGpio,
@@ -51,7 +55,7 @@ esp_err_t display_driver_init(void)
         .lcd_cmd_bits = 8,
         .lcd_param_bits = 8,
         .spi_mode = 0,
-        .trans_queue_depth = 0,
+        .trans_queue_depth = 10,
     };
     ret = esp_lcd_new_panel_io_spi((esp_lcd_spi_bus_handle_t)SPI2_HOST,
                                    &io_cfg, &s_io_handle);
@@ -98,8 +102,9 @@ esp_err_t display_driver_init(void)
         gpio_set_level(KDisplayBlGpio, 1);      /* active-high breakout */
     }
 
-    /* 5. LVGL port: default task/timer config; full-frame draw buffer in
-     * PSRAM, streamed to SPI DMA through a small SRAM chunk. */
+    /* 5. LVGL port: default task/timer config. The draw buffer is one 40-row
+     * BAND (19,200 B) in internal DMA-capable RAM, so the display path works
+     * with or without PSRAM; LVGL redraws in bands automatically. */
     const lvgl_port_cfg_t lvgl_cfg = ESP_LVGL_PORT_INIT_CONFIG();
     ret = lvgl_port_init(&lvgl_cfg);
     if (ret != ESP_OK) {
@@ -123,8 +128,8 @@ esp_err_t display_driver_init(void)
             .mirror_y = false,
         },
         .flags = {
-            .buff_dma = false,                  /* buffer is in PSRAM */
-            .buff_spiram = true,
+            .buff_dma = true,                   /* internal, DMA-capable RAM */
+            .buff_spiram = false,               /* band buffer: no PSRAM dependency */
             .swap_bytes = false,                /* tune on real board */
         },
     };
@@ -134,8 +139,9 @@ esp_err_t display_driver_init(void)
         goto fail;
     }
 
-    ESP_LOGI(TAG, "ILI9341 %dx%d ready (SPI2 @%dHz, PSRAM draw buffer)",
-             KDisplayHorRes, KDisplayVerRes, KDisplaySpiClockHz);
+    ESP_LOGI(TAG, "ILI9341 %dx%d ready (SPI2 @%dHz, %d-row band buffer, %d B)",
+             KDisplayHorRes, KDisplayVerRes, KDisplaySpiClockHz,
+             KDisplayBandRows, KDisplayDrawBufPix * (KDisplayBitsPerPixel / 8));
     return ESP_OK;
 
 fail:

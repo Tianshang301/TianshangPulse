@@ -23,10 +23,18 @@
 #define KDisplayBlGpio          CONFIG_DISPLAY_BL_GPIO
 #define KDisplaySpiClockHz      CONFIG_DISPLAY_SPI_CLOCK_HZ
 
-/* Full-frame draw buffer in PSRAM (MEMORY_LAYOUT.md: big buffers -> PSRAM);
- * a small SRAM chunk streams PSRAM -> SPI DMA. Transfers are synchronous
- * (trans_queue_depth = 0): ~30ms/frame @40MHz is fine for a status screen
- * and keeps flush ordering trivially correct. */
-#define KDisplayDrawBufPix      (KDisplayHorRes * KDisplayVerRes)
-#define KDisplayTransBytes      (KDisplayHorRes * 10 * (KDisplayBitsPerPixel / 8))
+/* Draw buffer = ONE BAND of scanlines, not the full frame.
+ *
+ * A full frame is 240*320 px = 150 KB. That is wrong twice over:
+ *   1. With CONFIG_SPIRAM=n it lands in internal SRAM and eats the RAM that
+ *      FreeRTOS still needs for queues and spinlocks -- the three-crashes-one-
+ *      cause failure recorded in SCREEN_BRINGUP_FINDINGS.md §三.
+ *   2. Even with PSRAM up it forces flags.buff_spiram, i.e. the display path
+ *      then depends on PSRAM having initialised.
+ * 40 rows = 9,600 px = 19,200 B, which fits internal DMA-capable RAM. LVGL
+ * renders partial buffers by redrawing in bands on its own; a status screen
+ * does not need a frame buffer. */
 #define KDisplayBitsPerPixel    (16)
+#define KDisplayBandRows        (40)
+#define KDisplayDrawBufPix      (KDisplayHorRes * KDisplayBandRows)
+#define KDisplayTransBytes      (KDisplayHorRes * 10 * (KDisplayBitsPerPixel / 8))

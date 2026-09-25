@@ -14,12 +14,15 @@ CONFIG_SPIRAM_SPEED_80M=y
 CONFIG_SPIRAM_USE_CAPS_ALLOC=y
 CONFIG_SPIRAM_TRY_ALLOCATE_WIFI_LWIP=n
 
-# Display / LVGL：ESP32-S3 的 Kconfig 默认 DISPLAY_ENABLE=y，但 LVGL 的 draw
-# buffer 需要 PSRAM（display_driver.c buff_spiram=true），PSRAM 关闭时
-# lvgl_port_init / lvgl_port_add_disp 创建队列会在 xQueueGenericCreate 处
-# assert 失败并复位。本板也未接 ILI9341 显示屏，故一并关闭显示。
-# 接上显示屏并解决 PSRAM-on 崩溃后再开。
-CONFIG_DISPLAY_ENABLE=n
+# Display / LVGL：已接 2.8" ILI9341（SCK=12/MOSI=11/CS=10/DC=9/RST=14/BL=21）并点亮。
+# 之前关闭的两个理由都已失效：
+#   a) "draw buffer 需要 PSRAM" —— 那是 trans_queue_depth=0 导致的
+#      xQueueGenericCreate assert（见 SCREEN_BRINGUP_FINDINGS.md §二），已修为 10；
+#   b) 现在的 draw buffer 是 40 行条带（9,600 px = 19,200 B，内部 DMA RAM），
+#      buff_spiram=false，因此显示不再依赖 PSRAM。
+CONFIG_DISPLAY_ENABLE=y
+# 首次点亮实测可用的 SPI 时钟（20cm 杜邦线）；确认长期稳定后再回调 40MHz。
+CONFIG_DISPLAY_SPI_CLOCK_HZ=10000000
 
 # Flash: 16MB (N16R8)
 CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y

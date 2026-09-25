@@ -11,7 +11,21 @@ CONFIG_FREERTOS_IDLE_TASK_STACKSIZE=3072
 # Bump the shared minimal stack used by portSTARTup before task stacks exist.
 # Too-small here masks as "core dies right after cpu_start: Multicore app" with no
 # panic banner (log UART isn't up yet to print one).
-CONFIG_ESP_MINIMAL_SHARED_STACK_SIZE=3072
+# 2026-09-24 bring-up: 3072 was NOT enough with OPI PSRAM + dual core (app reset
+# in a ~9s loop right after "cpu_start: Multicore app"). OPI PSRAM needs deeper
+# cache critical sections -> 8192.
+CONFIG_ESP_MINIMAL_SHARED_STACK_SIZE=8192
+
+# ---- TEMPORARY hardware bring-up diagnostics (revert once boot is clean) ----
+# 1) Bootloader RTC WDT. IDF default is 9000ms and it is still armed during the
+#    app's early start-up (esp_int_wdt only re-arms it later), so any slow early
+#    phase shows up as a 9s reboot loop with reason rst:0x10 (RTCWDT_RTC_RST)
+#    and no panic banner. 30s separates "slow" from "hard hang".
+CONFIG_BOOTLOADER_WDT_TIME_MS=30000
+# 2) Debug level so the early start-up markers are actually compiled in and
+#    printed: "Starting app cpu, entry point is ..." (cpu_start.c:283) and
+#    "Pro cpu up" (cpu_start.c:616). These prove how far the boot gets.
+CONFIG_LOG_DEFAULT_LEVEL_DEBUG=y
 
 # Power management. power_manager_init() calls esp_pm_configure(); with
 # CONFIG_PM_ENABLE unset that is a stub returning ESP_ERR_NOT_SUPPORTED, and the

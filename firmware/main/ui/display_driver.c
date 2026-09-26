@@ -84,11 +84,9 @@ esp_err_t display_driver_init(void)
     if (ret != ESP_OK) goto fail;
     (void)esp_lcd_panel_invert_color(s_panel_handle, false);
     /* Panel orientation -- hardware-verified 2026-09-26 on the 2.8" ILI9341
-     * breakout: needs both MX=1 (fixes left-right mirror) and MY=1 (fixes
-     * upside-down vertical inversion).
-     * Final MADCTL = 0x08 (BGR) | 0x40 (MX) | 0x80 (MY) = 0xC8.
-     * MV stays 0: portrait orientation (240x320) is correct. */
-    (void)esp_lcd_panel_mirror(s_panel_handle, true, true);    /* MX=1, MY=1 */
+     * breakout: needs MX=1 to fix left-right mirror, MY=0 to keep vertical normal.
+     * Note: esp_lvgl_port_add_disp() will apply disp_cfg.rotation, so keep both in sync. */
+    (void)esp_lcd_panel_mirror(s_panel_handle, true, false);    /* MX=1, MY=0 */
     (void)esp_lcd_panel_swap_xy(s_panel_handle, false);
     ret = esp_lcd_panel_disp_on_off(s_panel_handle, true);
     if (ret != ESP_OK) goto fail;
@@ -129,8 +127,8 @@ esp_err_t display_driver_init(void)
         .color_format = LV_COLOR_FORMAT_RGB565,
         .rotation = {
             .swap_xy = false,
-            .mirror_x = false,
-            .mirror_y = false,
+            .mirror_x = true,   /* Fix left-right mirror (applied by lvgl_port) */
+            .mirror_y = false,  /* Vertical is already correct */
         },
         .flags = {
             .buff_dma = true,                   /* internal, DMA-capable RAM */
